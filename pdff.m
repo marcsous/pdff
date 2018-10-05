@@ -112,12 +112,17 @@ fprintf(' Shifting kspace center [%i %i %i] to [1 1 1]\n',dx,dy,dz);
 psi0 = angle(dot(data(:,:,:,1:ne-1),data(:,:,:,2:ne),4));
 
 % phase unwrapping to remove gross swaps
-if nx>1 && ny>1
-    if nz==1
-        psi0 = unwrap2(psi0); 
-    else
-        psi0 = unwrap3(psi0); 
+try
+    if nx>1 && ny>1
+        if nz==1
+            psi0 = unwrap2(psi0);
+        else
+            psi0 = unwrap3(psi0);
+        end
     end
+catch ME
+    % need to install github.com/marcsous/unwrap?
+    warning('%s',ME.message);
 end
 
 % convert units to Hz
