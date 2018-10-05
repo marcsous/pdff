@@ -22,8 +22,8 @@ function [params sse wf] = pdff(te,data,Tesla,varargin)
 
 % demo code
 if nargin==0
-     load PHANTOM_NDB_PAPER.mat
-     varargin = {'h2o',H2O,'ndb',3}; % phantom options
+    load PHANTOM_NDB_PAPER.mat
+    varargin = {'h2o',H2O,'ndb',3}; % phantom options
 end
 
 %% default options
@@ -134,7 +134,7 @@ if numel(data)==numel(te)
     opts.noise = 0;
 else
     S = svd(reshape(data,nx*ny*nz,ne));
-    opts.noise = S(end)/sqrt(nx*ny*nz)/1000;
+    opts.noise = S(end)/sqrt(2*nx*ny*nz);
 end
 disp([' Noise std: ' num2str(opts.noise)])
 
