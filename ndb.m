@@ -21,9 +21,8 @@ data = reshape(data,ne,1);
 NDB = 3; % no. double bonds
 R2 = 20; % default R2* in 1/s
 
-dt = mean(diff(te)); % ~equal spaced
-temp = dot(data(1:ne-1),data(2:ne));
-B0 = angle(temp)/2/pi/dt; % B0 in Hz
+tmp = dot(data(1:ne-1),data(2:ne));
+B0 = angle(tmp)/2/pi/mean(diff(te)); % B0 in Hz
 
 if nargin<4 || isempty(H2O)
     H2O = 4.7; % water freq in ppm
@@ -41,7 +40,7 @@ H2O = double(H2O);
 
 x1 = [B0   R2 NDB];
 LB = [-Inf  0   1];
-UB = [+Inf 500  6];
+UB = [+Inf 100  6];
 
 opts = optimset('display','off');
 
@@ -51,7 +50,7 @@ opts = optimset('display','off');
 % second estimate (assume B0 is on fat peak)
 [~,psif] = fat_basis(te,Tesla,NDB,H2O);
 x2(1) = x1(1)-real(psif);
-x2(2) = max(x1(2)-2*pi*imag(psif),0);
+x2(2) = max(x1(2)-imag(psif),0);
 x2(3) = NDB;
 [x2,sse2,~,~,~,~,J2] = lsqnonlin(@(x)myfun(x,te,data,Tesla,H2O),x2,LB,UB,opts);
 
@@ -79,6 +78,9 @@ if display
     axis tight; drawnow
 
 end
+
+% convert R2* to 1/s
+x(2) = 2*pi*x(2);
 
 % convert wf to FF (%) 
 x(4) = 100*real(wf(2)/sum(wf));
@@ -112,15 +114,15 @@ end
 function [r wf] = myfun(x,te,data,Tesla,H2O)
 
 % unknowns
-B0 = x(1);   % field map Hz
-R2 = x(2);   % exp decay 1/s
+B0 = x(1);   % field map
+R2 = x(2);   % exp decay
 NDB = x(3);  % no. double bonds
 
 % water/fat time evolution matrix
 A = fat_basis(te,Tesla,NDB,H2O);
 
 % fieldmap and R2*
-W = diag(exp((2*pi*i*B0-R2)*te));
+W = diag(exp(2*pi*i*complex(B0,R2)*te));
 
 % two paths: one for residual, one for display
 if numel(x)==3

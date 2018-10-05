@@ -269,7 +269,7 @@ end
 if numel(data)==numel(te)
     cplot(te,data,'o');hold on;cplot(te,data-r);hold off;xlabel('te (s)');pause(0.1);
     title(['||r||=' num2str(norm(r)) ' psi=' num2str(psi,'%.1f') ' FF=' num2str(wf(2)/sum(wf),'%.3f')]);
-    fprintf('B0=%.2f\tR2=%.3f\tFF=%.2f\tPH=%.4f\tsse=%.5e\n',real(psi),2*pi*imag(psi),100*wf(2)/sum(wf),p,norm(r)^2);
+    fprintf('B0=%.2f\tR2=%.3f\tFF=%.3f\tPH=%.4f\tsse=%.5e\n',real(psi),2*pi*imag(psi),100*wf(2)/sum(wf),p,norm(r)^2);
 else
     fprintf('\t||r||=%.3e\tmu=%.2e\t',norm(r(:)),opts.mu);
     if opts.smooth_phase; fprintf('smooth\t'); end; toc
