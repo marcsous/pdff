@@ -100,7 +100,7 @@ if nargout>1
     psif = complex(-150*Tesla,10);
     for j = 1:10
         r = myfun(psif,te,fat);
-        h = 1e-4;
+        h = 1e-3;
         J = (myfun(psif+h,te,fat)-r)/h;
         psif = psif - pinv(J)*r;
     end

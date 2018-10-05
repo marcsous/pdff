@@ -18,11 +18,10 @@ data = reshape(data,ne,1);
 
 %% initialize parameters
 
-NDB = 3; % no. double bonds
-R2 = 20; % default R2* in 1/s
-
 tmp = dot(data(1:ne-1),data(2:ne));
 B0 = angle(tmp)/2/pi/mean(diff(te)); % B0 in Hz
+R2 = 10; % initial R2* in 1/s divided by 2pi
+NDB = 3; % no. double bonds
 
 if nargin<4 || isempty(H2O)
     H2O = 4.7; % water freq in ppm

@@ -125,8 +125,8 @@ catch ME
     warning('%s',ME.message);
 end
 
-% convert units to Hz
-psi0 = psi0/mean(diff(te))/2/pi;
+% convert to Hz (imag part is R2*)
+psi0 = psi0/mean(diff(te))/2/pi + 10i;
 
 %% use noise std as scale parameter
 
@@ -155,7 +155,7 @@ end
 % echos in 1st dimension (faster dot products)
 data = permute(data,[4 1 2 3]);
 psi0 = reshape(psi0,[1 size(psi0)]);
-te = reshape(cast(te,'like',psi0),ne,1);
+te = reshape(cast(te,'like',real(psi0)),ne,1);
 
 %% nonlinear estimation (local optmization)
 
