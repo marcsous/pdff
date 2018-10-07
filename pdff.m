@@ -1,5 +1,5 @@
 function [params sse wf] = pdff(te,data,Tesla,varargin)
-%[params sse wf] = pdff(te,data,Tesla,varargin)
+
 %
 % Proton density fat fraction estimation using phase
 % constrained least squares. Returns [B0 R2* FF PHI].
