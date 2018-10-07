@@ -1,5 +1,8 @@
 function h = ims(im,CLIM,TITLE)
-%Show images: h = ims(im,CLIM,TITLE)
+%h = ims(im,CLIM,TITLE)
+%
+% im:
+%   [nx ny ...] array of 2D images
 %
 % CLIM:
 %   [FRAC] = scale to fraction of the range
