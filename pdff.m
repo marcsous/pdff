@@ -4,6 +4,9 @@ function [params sse wf] = pdff(te,data,Tesla,varargin)
 % Proton density fat fraction estimation using phase
 % constrained least squares. Returns [B0 R2* FF PHI].
 %
+% Works best with phase unwrapping (e.g. unwrap2.m &
+% unwrap3.m from https://github.com/marcsous/unwrap).
+%
 % Inputs:
 %  te is echo time in seconds (vector)
 %  data (1D, 2D or 3D with echos in last dimension)
@@ -14,12 +17,12 @@ function [params sse wf] = pdff(te,data,Tesla,varargin)
 %  imDataParams is a struct from fat-water toolbox
 %
 % Outputs:
-%  params(1) is B0 (Hz)
-%  params(2) is R2 (1/s)
-%  params(3) is FF (%)
-%  params(4) is PH (rad)
+%  params.B0 is B0 (Hz)
+%  params.R2 is R2* (1/s)
+%  params.FF is FF (%)
+%  params.PH is PH (rad)
 %  sse is sum of squares error
-%  wf is water and fat proton densities at TE=0
+%  wf is water and fat signals at TE=0
 
 % demo code
 if nargin==0
@@ -34,8 +37,6 @@ opts.h2o = 4.7; % water frequency ppm
 opts.maxit = 10; % max. no. iterations
 opts.noise = []; % noise std (if available)
 opts.filter = [5 5 3]; % smoothing filter size
-opts.smooth_phase = 0; % initial phase filter size
-opts.nonexp_decay = 0; % use B0-induced non-exp decay
 
 % varargin handling (must be option/value pairs)
 for k = 1:2:numel(varargin)
@@ -49,6 +50,7 @@ for k = 1:2:numel(varargin)
 end
 
 %% special handling to accept ISMRM F/W toolbox structure
+
 if isa(te,'struct')
     Tesla = te.FieldStrength;
     [nx ny nz nc ne] = size(te.images);
@@ -68,7 +70,11 @@ elseif ndims(data)==3 && size(data,3)==numel(te)
     data = permute(data,[1 2 4 3]);
 elseif ndims(data)==4 && size(data,4)==numel(te)
 else
-    error('data [%s\b] not compatible with te [%s\b].',sprintf('%i ',size(data)),sprintf('%i ',size(te)));
+    error('data [%s\b] not compatible with te [%s\b].',...
+    sprintf('%i ',size(data)),sprintf('%i ',size(te)));
+end
+if numel(te)<3
+    error('too few echos for B0, FF and R2* estimation.');
 end
 if max(te)>1
     error('''te'' should be in seconds.');
@@ -82,12 +88,15 @@ if isreal(data) || ~isfloat(data)
     data = single(data);
 end
 
+% time evolution matrix
+[opts.A opts.psif] = fat_basis(te,Tesla,opts.ndb,opts.h2o);
+
 disp([' Data size: [' sprintf('%i ',size(data)) sprintf('\b]')])
 disp([' TE (ms): ' sprintf('%.2f ',1000*te(:))])
 disp([' Tesla (T): ' sprintf('%.2f',Tesla)])
 disp(opts);
 
-%% crop all-zero rows/cols/slices 
+%% crop all-zero rows/cols/slices to help cpu
 
 mask = any(data,4);
 x = any(any(mask,2),3);
@@ -97,18 +106,18 @@ if nnz(mask)==0; error('All pixels are zero.'); end
 
 data = data(x,y,z,:);
 [nx ny nz ne] = size(data);
-fprintf(' Cropping image matrix [%i %i %i] to [%i %i %i]\n',size(mask),[nx ny nz]);
+fprintf(' Cropping image matrix to [%i %i %i]\n',[nx ny nz]);
 
-%% use noise std as scale parameter (crop some more?)
+%% use noise std as scale parameter for mu (crop more?)
 
 if numel(data)==numel(te)
     opts.noise = 0;
 elseif isempty(opts.noise)
-    % need a good way to estimate std
+    % better way to estimate std?
     S = svd(reshape(data,nx*ny*nz,ne));
     opts.noise = S(end)/sqrt(2*nx*ny*nz);
 end
-disp([' Noise std: ' num2str(opts.noise)])
+disp([' Noise std estimate: ' num2str(opts.noise)])
 
 %% center kspace (otherwise smoothing is ineffective)
 
@@ -120,67 +129,55 @@ data = circshift(data,1-[dx dy dz]);
 data = ifft3(data);
 fprintf(' Shifting kspace center [%i %i %i] to [1 1 1]\n',dx,dy,dz);
 
-%% dominant frequency in each pixel
-
-tmp = dot(data(:,:,:,1:ne-1),data(:,:,:,2:ne),4);
-tmp = convn(tmp,ones(opts.filter),'same');
-psi0 = angle(tmp);
-
-% phase unwrapping to remove gross swaps
-try
-    if nx>1 && ny>1
-        if nz==1
-            psi0 = unwrap2(psi0);
-        else
-            psi0 = unwrap3(psi0);
-        end
-    end
-catch ME
-    % need to install github.com/marcsous/unwrap
-    warning('%s',ME.message);
-end
-
-% convert to Hz (imag part is R2*)
-psi0 = psi0/mean(diff(te))/2/pi + 10i;
-
 %% see if gpu is possible
 
 try
     gpu = gpuDevice;
     if verLessThan('matlab','8.4'); error('GPU needs MATLAB R2014b'); end
-    psi0 = gpuArray(psi0);
     data = gpuArray(data);
     fprintf(' GPU found = %s (%.1f Gb)\n',gpu.Name,gpu.AvailableMemory/1e9);
 catch ME
-    psi0 = gather(psi0);
     data = gather(data);
     warning('%s. Using CPU.', ME.message);
 end
 
-% echos in 1st dimension (faster dot products)
+%% echos in 1st dimension (faster dot products)
+
 data = permute(data,[4 1 2 3]);
-psi0 = reshape(psi0,[1 size(psi0)]);
-te = reshape(cast(te,'like',real(psi0)),ne,1);
+te = reshape(real(cast(te,'like',data)),ne,1);
 
 %% nonlinear estimation (local optmization)
 
-% local minima are separated by psif
-[opts.A opts.psif] = fat_basis(te,Tesla,opts.ndb,opts.h2o);
+% initialize with dominant frequency
+tmp = dot(data(1:end-1,:,:,:),data(2:end,:,:,:),1);
+psi = angle(tmp)/2/pi/mean(diff(te));
 
+% find the 2 local minima
 fprintf(' 1st local min\t');
-[psi1 r1] = nlsfit(psi0,te,data,opts);
+[psi1 r1] = nlsfit(psi,te,data,opts);
 
 fprintf(' 2nd local min\t');
 [psi2 r2] = nlsfit(psi1-opts.psif,te,data,opts);
 
-% choose the solution with lowest ||r||
-ok = real(dot(r1,r1)) < real(dot(r2,r2));
-
-psi = zeros(size(psi0),'like',psi0);
+% choose the lowest ||r||
+ok = dot(r1,r1) < dot(r2,r2);
 psi(ok) = psi1(ok);
 psi(~ok) = psi2(~ok);
 
-%% ideal processing to remove swaps (global optmization)
+% phase unwrapping to remove fat-water swaps
+try
+    tmp = gather(real(squeeze(psi)))*2*pi/real(opts.psif);
+    if nx>1 && ny>1
+        if nz==1
+            tmp = unwrap2(tmp);
+        else
+            tmp = unwrap3(tmp);
+        end
+    end
+    psi = reshape(tmp*real(opts.psif)/2/pi,size(psi))+i*imag(psi);
+end
+
+%% ideal processing to remove remaining swaps
 
 for iter = 1:opts.maxit
     
@@ -197,35 +194,25 @@ for iter = 1:opts.maxit
     end
     psi = reshape(tmp,size(psi))+i*imag(psi);
     
-    % refine: mu constrains psi to initial value
+    % mu constrains psi to initial value
     opts.mu = opts.noise * (iter/opts.maxit);
     [psi r p wf] = nlsfit(psi,te,data,opts);
     
+    % single pixel fitting (no smoothing)
     if numel(data)==numel(te); break; end
 end
 
-%% return in sensible format
+%% return in correct format
 
-tmp = zeros(size(mask,1),size(mask,2),size(mask,3),4,'like',te);
-tmp(x,y,z,1) = real(psi); % B0 (Hz)
-tmp(x,y,z,2) = imag(psi)/2/pi; % R2* (1/s)
-tmp(x,y,z,3) = 100*wf(2,:,:,:)./sum(wf); % FF (%)
-tmp(x,y,z,4) = p; % initial phase (radians)
-params = tmp;
+p = gather(squeeze(p));
+psi = gather(squeeze(psi));
+wf = gather(permute(wf,[2 3 4 1]));
+sse = gather(squeeze(real(dot(r,r))));
 
-tmp = zeros(size(mask,1),size(mask,2),size(mask,3),2,'like',te);
-tmp(x,y,z,:) = permute(wf,[2 3 4 1]);
-wf = tmp;
-
-tmp = zeros(size(mask,1),size(mask,2),size(mask,3),1,'like',te);
-tmp(x,y,z) = real(dot(r,r));
-sse = tmp;
-
-wf = gather(wf);
-sse = gather(sse);
-params = gather(params);
-
-if nargout==0; clear; end % prevent dump to screen
+params.B0 = real(psi); % B0 (Hz)
+params.R2 = imag(psi)*2*pi; % R2* (1/s)
+params.FF = 100*wf(:,:,:,2)./sum(wf,4); % FF (%)
+params.PH = p; % initial phase (radians)
 
 %% nonlinear least squares fitting
 function [psi r p wf] = nlsfit(psi,te,data,opts)
@@ -235,9 +222,9 @@ h = sqrt(eps('single')); % derivatives
 tiny = realmin('single'); % division by 0
 psi0 = psi; % use initial value to constrain
 if ~isfield(opts,'mu'); opts.mu = 0; end
+tic;
 
 % gauss newton
-tic;
 for iter = 1:opts.maxit
 
     % residual
@@ -262,12 +249,12 @@ for iter = 1:opts.maxit
     dtm = max(J1.*J3-J2.^2,tiny); % dtm>0 for pos def matrix
     psi = psi-complex(J3.*Jrr-J2.*Jir,J1.*Jir-J2.*Jrr)./dtm;
     
-    % prevent values that result in Inf/NaN (mu should take care of this...)
+    % prevent values that give Inf/NaN (mu should handle this...)
     psi = real(psi) + i*min(max(imag(psi),0),100);
 
 end
 
-% final r to get initial phase and wf
+% final call to get wf and p
 [r p wf] = pclsr(psi,te,data,opts);
 
 % display
@@ -276,8 +263,7 @@ if numel(data)==numel(te)
     title(['||r||=' num2str(norm(r)) ' psi=' num2str(psi,'%.1f') ' FF=' num2str(wf(2)/sum(wf),'%.3f')]);
     fprintf('B0=%.2f\tR2=%.3f\tFF=%.3f\tPH=%.4f\tsse=%.5e\n',real(psi),2*pi*imag(psi),100*wf(2)/sum(wf),p,norm(r)^2);
 else
-    fprintf('\t||r||=%.3e\tmu=%.2e\t',norm(r(:)),opts.mu);
-    if opts.smooth_phase; fprintf('smooth\t'); end; toc
+    fprintf('\t||r||=%.4e\tmu=%.4e\t',norm(r(:)),opts.mu); toc
     mid = round(size(data,4)/2); % middle slice
     tmp = zeros(size(data,2),size(data,3),4,'like',te);
     tmp(:,:,1) = p(1,:,:,mid); % initial phase
@@ -299,18 +285,6 @@ tiny = realmin('single');
 % complex weighting (R2* and fieldmap)
 W = exp(2*pi*i*te*reshape(psi,1,nx*ny*nz));
 
-% non-exp decay induced by B0 gradient
-if opts.nonexp_decay 
-    d = [1 0 -1]/2; % derivative filter
-    B = real(psi); % frequency component
-    G = convn(B,reshape(d,1,[],1,1),'same').^2+...
-        convn(B,reshape(d,1,1,[],1),'same').^2+...
-        convn(B,reshape(d,1,1,1,[]),'same').^2;
-    G = reshape(G,1,nx*ny*nz); % Euclidian grad^2
-    W = W.*exp(-(pi*te).^2*G/6);
-    %W = W.*sinc(te*sqrt(G));
-end
-
 % (tricky) Ab = A'*W'*W*inv(W)*b = A'*W'*b
 Ab = opts.A'*(conj(W).*reshape(b,ne,nx*ny*nz));
 
@@ -323,21 +297,17 @@ A3 = real(conj(opts.A(:,2)).*opts.A(:,2))' * WW;
 dtm = max(A1.*A3-A2.^2,tiny); % dtm>0 for pos def matrix
 
 % solve Re(A'*W'*W*A)*x = Re(A'*W'*b*exp(-i*p))
-P = A3.*Ab(1,:).^2+A1.*Ab(2,:).^2-2*A2.*prod(Ab);
-if opts.smooth_phase
-    P = reshape(P,nx,ny,nz,1);
-    P = convn(P,ones(3),'same');
-    P = reshape(P,1,nx*ny*nz); 
-end
-p = angle(P)/2;
+p = angle(A3.*Ab(1,:).^2+A1.*Ab(2,:).^2-2*A2.*prod(Ab))/2;
 Ab = real(bsxfun(@times,Ab,exp(-i*p)));
 wf = [A3.*Ab(1,:)-A2.*Ab(2,:);A1.*Ab(2,:)-A2.*Ab(1,:)];
 wf = bsxfun(@times,wf,exp(i*p)./dtm);
 r = reshape(b,ne,nx*ny*nz)-W.*(opts.A*wf);
 
-% recalculate p to absorb sign of x
-p = angle(sum(wf));
-wf = real(bsxfun(@times,wf,exp(-i*p)));
+% recalculate p to absorb sign of x (cosmetic)
+if nargout>1
+    p = angle(sum(wf));
+    wf = real(bsxfun(@times,wf,exp(-i*p)));
+end
 
 % residual, phase and water-fat estimates
 r = reshape(r,ne,nx,ny,nz);

@@ -1,12 +1,19 @@
-function [x sse] = ndb(te,data,Tesla,H2O)
+function [params sse] = ndb(te,data,Tesla,H2O)
 
 % Fat water separation with double bond estimation.
 % WARNING - SLOW!! Only does single pixel fitting.
 %
-% te is a vector in seconds (ne)
-% data is a complex vector (ne)
-% Tesla is field strength (scalar)
-% H2O is the water ppm (optional)
+% Inputs:
+%  te is a vector in seconds (ne)
+%  data is a complex vector (ne)
+%  Tesla is field strength (scalar)
+%  H2O is the water ppm (optional)
+%
+% Outputs:
+%  params.B0 is B0 (Hz)
+%  params.R2 is R2* (1/s)
+%  params.FF is FF (%)
+%  params.PH is PH (ra
 
 display = true;
 
@@ -28,12 +35,12 @@ if nargin<4 || isempty(H2O)
 end
 
 % make lsqnonlin happy
-te = double(te);
-data = double(data);
-Tesla = double(Tesla);
-B0 = double(B0);
-R2 = double(R2);
-H2O = double(H2O);
+te = double(gather(te));
+data = double(gather(data));
+Tesla = double(gather(Tesla));
+B0 = double(gather(B0));
+R2 = double(gather(R2));
+H2O = double(gather(H2O));
 
 %% nonlinear fitting
 
@@ -65,7 +72,7 @@ else
 end
 
 % get the linear(ish) terms (wf p)
-[~,wf] = myfun(x,te,data,Tesla,H2O);
+[r wf] = myfun(x,te,data,Tesla,H2O);
 
 % display
 if display
@@ -74,21 +81,17 @@ if display
     te = linspace(0,min(te)+max(te),10*ne);
     data = myfun([x(:);wf(:)],te,data,Tesla,H2O);
     hold on; cplot(te,data); hold off
+    title(['||r||=' num2str(norm(r)) ' FF=' num2str(real(wf(2)/sum(wf)),'%.3f') ' NDB=' num2str(x(3),'%.3f')]);
     axis tight; drawnow
 
 end
 
-% convert R2* to 1/s
-x(2) = 2*pi*x(2);
-
-% convert wf to FF (%) 
-x(4) = 100*real(wf(2)/sum(wf));
-
-% limit FF values (for display)
-x(4) = max(min(x(4),110),-10);
-
-% initial phase
-x(5) = angle(sum(wf));
+% return variable
+params.B0 = x(1);
+params.R2 = 2*pi*x(2); % convert to 1/s
+params.FF = 100*real(wf(2)/sum(wf)); 
+params.PH = angle(sum(wf));
+params.NDB = x(3);
 
 % display
 if display
@@ -99,10 +102,10 @@ if display
     
     disp([' initial B0 ' num2str(B0) ' R2* ' num2str(R2)])
     disp([' B0    ' num2str(x(1)) ' ± ' num2str(ci95(1))])
-    disp([' R2*   ' num2str(x(2)) ' ± ' num2str(ci95(2))])
+    disp([' R2*   ' num2str(2*pi*x(2)) ' ± ' num2str(2*pi*ci95(2))])
+    disp([' FF    ' num2str(params.FF)])
+    disp([' PH    ' num2str(params.PH)])
     disp([' NDB   ' num2str(x(3)) ' ± ' num2str(ci95(3))])
-    disp([' FF    ' num2str(x(4))])
-    disp([' PHI   ' num2str(x(5))])
     disp([' H2O   ' num2str(H2O) ' (fixed)'])
     disp([' sse   ' num2str(sse,10)])
     disp(' ')
