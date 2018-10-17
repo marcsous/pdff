@@ -1,5 +1,5 @@
-function [params sse wf] = pdff(te,data,Tesla,varargin)
-%[params sse wf] = pdff(te,data,Tesla,varargin)
+function [params sse] = pdff(te,data,Tesla,varargin)
+%[params sse] = pdff(te,data,Tesla,varargin)
 %
 % Proton density fat fraction estimation using phase
 % constrained least squares. Returns [B0 R2* FF PHI].
@@ -22,7 +22,6 @@ function [params sse wf] = pdff(te,data,Tesla,varargin)
 %  params.FF is FF (%)
 %  params.PH is PH (rad)
 %  sse is sum of squares error
-%  wf is water and fat signals at TE=0
 
 % demo code
 if nargin==0
@@ -74,7 +73,7 @@ else
     sprintf('%i ',size(data)),sprintf('%i ',size(te)));
 end
 if numel(te)<3
-    error('too few echos for B0, FF and R2* estimation.');
+    error('too few echos (%i) for B0, FF, R2* estimation.',numel(te));
 end
 if max(te)>1
     error('''te'' should be in seconds.');
@@ -88,17 +87,29 @@ if isreal(data) || ~isfloat(data)
     data = single(data);
 end
 
+%% set up some constants
+
+% estimate noise std
+if numel(data)==numel(te)
+    opts.noise = 0;
+elseif isempty(opts.noise)
+    % a better way to estimate std?
+    S = svd(reshape(data,[],numel(te)));
+    opts.noise = S(end)/sqrt(nnz(data)/numel(te));
+end
+
 % time evolution matrix
 [opts.A opts.psif] = fat_basis(te,Tesla,opts.ndb,opts.h2o);
 
+% display
 disp([' Data size: [' sprintf('%i ',size(data)) sprintf('\b]')])
 disp([' TE (ms): ' sprintf('%.2f ',1000*te(:))])
 disp([' Tesla (T): ' sprintf('%.2f',Tesla)])
 disp(opts);
 
-%% crop all-zero rows/cols/slices to help cpu
+%% crop rows/cols/slices to help cpu
 
-mask = any(data,4);
+mask = any(abs(data)>opts.noise,4);
 x = any(any(mask,2),3);
 y = any(any(mask,1),3);
 z = any(any(mask,1),2);
@@ -106,18 +117,7 @@ if nnz(mask)==0; error('All pixels are zero.'); end
 
 data = data(x,y,z,:);
 [nx ny nz ne] = size(data);
-fprintf(' Cropping image matrix to [%i %i %i]\n',[nx ny nz]);
-
-%% use noise std as scale parameter for mu (crop more?)
-
-if numel(data)==numel(te)
-    opts.noise = 0;
-elseif isempty(opts.noise)
-    % better way to estimate std?
-    S = svd(reshape(data,nx*ny*nz,ne));
-    opts.noise = S(end)/sqrt(2*nx*ny*nz);
-end
-disp([' Noise std estimate: ' num2str(opts.noise)])
+fprintf(' Cropping images to [%i %i %i]\n',[nx ny nz]);
 
 %% center kspace (otherwise smoothing is ineffective)
 
@@ -127,7 +127,7 @@ tmp = sum(abs(data),4);
 [dx dy dz] = ind2sub([nx ny nz],k);
 data = circshift(data,1-[dx dy dz]);
 data = ifft3(data);
-fprintf(' Shifting kspace center [%i %i %i] to [1 1 1]\n',dx,dy,dz);
+fprintf(' Shifting kspace center [%i %i %i]\n',dx,dy,dz);
 
 %% see if gpu is possible
 
@@ -148,9 +148,9 @@ te = reshape(real(cast(te,'like',data)),ne,1);
 
 %% nonlinear estimation (local optmization)
 
-% initialize with dominant frequency
+% initialize with dominant frequency (Hz)
 tmp = dot(data(1:end-1,:,:,:),data(2:end,:,:,:),1);
-psi = angle(tmp)/2/pi/mean(diff(te));
+psi = angle(tmp)/2/pi/mean(diff(te))+imag(opts.psif);
 
 % find the 2 local minima
 fprintf(' 1st local min\t');
@@ -202,17 +202,25 @@ for iter = 1:opts.maxit
     if numel(data)==numel(te); break; end
 end
 
-%% return in correct format
+%% return parameters in correct format
 
-p = gather(squeeze(p));
-psi = gather(squeeze(psi));
-wf = gather(permute(wf,[2 3 4 1]));
-sse = gather(squeeze(real(dot(r,r))));
+tmp = zeros(size(mask),'like',gather(te));
 
-params.B0 = real(psi); % B0 (Hz)
-params.R2 = imag(psi)*2*pi; % R2* (1/s)
-params.FF = 100*wf(:,:,:,2)./sum(wf,4); % FF (%)
-params.PH = p; % initial phase (radians)
+tmp(x,y,z) = gather(real(psi));
+params.B0 = tmp; % B0 (Hz)
+
+tmp(x,y,z) = gather(imag(psi)*2*pi);
+params.R2 = tmp; % R2* (1/s)
+
+tmp(x,y,z) = gather(100*wf(2,:,:,:)./sum(wf)); 
+params.FF = tmp; % FF (%)
+
+tmp(x,y,z) = gather(p);
+params.PH = tmp; % initial phase (radians)
+
+tmp(x,y,z) = gather(real(dot(r,r)));
+sse = tmp;
+
 
 %% nonlinear least squares fitting
 function [psi r p wf] = nlsfit(psi,te,data,opts)
