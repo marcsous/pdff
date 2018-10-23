@@ -93,7 +93,7 @@ end
 if numel(data)==numel(te)
     opts.noise = 0;
 elseif isempty(opts.noise)
-    % a better way to estimate std?
+    % need better way to estimate std
     S = svd(reshape(data,[],numel(te)));
     opts.noise = S(end)/sqrt(nnz(data)/numel(te));
 end
@@ -138,7 +138,7 @@ try
     fprintf(' GPU found = %s (%.1f Gb)\n',gpu.Name,gpu.AvailableMemory/1e9);
 catch ME
     data = gather(data);
-    warning('%s. Using CPU.', ME.message);
+    warning('%s. Using CPU.',ME.message);
 end
 
 %% echos in 1st dimension (faster dot products)
@@ -150,7 +150,7 @@ te = reshape(real(cast(te,'like',data)),ne,1);
 
 % initialize with dominant frequency (Hz)
 tmp = dot(data(1:end-1,:,:,:),data(2:end,:,:,:),1);
-psi = angle(tmp)/2/pi/mean(diff(te))+imag(opts.psif);
+psi = angle(tmp)/2/pi/mean(diff(te))+10i;
 
 % find the 2 local minima
 fprintf(' 1st local min\t');
@@ -175,6 +175,9 @@ try
         end
     end
     psi = reshape(tmp*real(opts.psif)/2/pi,size(psi))+i*imag(psi);
+    fprintf(' Phase unwrapping succeeded.\n');
+catch ME
+    fprintf(' Phase unwrapping failed (%s).\n',ME.message);
 end
 
 %% ideal processing to remove remaining swaps
@@ -276,7 +279,7 @@ else
     tmp = zeros(size(data,2),size(data,3),4,'like',te);
     tmp(:,:,1) = p(1,:,:,mid); % initial phase
     tmp(:,:,2) = min(max(real(psi(1,:,:,mid)),-2.1*abs(opts.psif)),2.1*abs(opts.psif)); % B0
-    tmp(:,:,4) = min(max(imag(psi(1,:,:,mid))/2/pi,-1),21); % R2*
+    tmp(:,:,4) = min(max(imag(psi(1,:,:,mid))*2*pi,-1),501); % R2*
     tmp(:,:,3) = min(max(100*wf(2,:,:,mid)./sum(wf(:,:,:,mid)),-5),105); % FF
     ims(tmp,1,{'PH (rad)','B0 (Hz)','FF (%)','R2* (1/s)'}); for k = 1:4; subplot(2,2,k); colorbar; end; drawnow
 end

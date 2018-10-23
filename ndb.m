@@ -26,17 +26,14 @@ data = reshape(data,ne,1);
 
 %% initialize parameters
 
+tmp = angle(dot(data(1:ne-1),data(2:ne)));
+B0 = tmp/2/pi/mean(diff(te)); % B0 in Hz
+R2 = 10; % R2* in (1/s)/2pi
+NDB = 3; % no. double bonds
+
 if nargin<4 || isempty(H2O)
     H2O = 4.7; % water freq in ppm
 end
-
-NDB = 3; % no. double bonds
-
-tmp = angle(dot(data(1:ne-1),data(2:ne)));
-B0 = tmp/2/pi/mean(diff(te)); % B0 in Hz
-
-[~,psif] = fat_basis(te,Tesla,NDB,H2O);
-R2 = imag(psif); % R2* in (1/s)/2pi
 
 % make lsqnonlin happy
 te = double(gather(te));
@@ -58,6 +55,7 @@ opts = optimset('display','off');
 [x1,sse1,~,~,~,~,J1] = lsqnonlin(@(x)myfun(x,te,data,Tesla,H2O),x1,LB,UB,opts);
 
 % second estimate (assume B0 is on fat peak)
+[~,psif] = fat_basis(te,Tesla,NDB,H2O);
 x2(1) = x1(1)-real(psif);
 x2(2) = max(x1(2)-imag(psif),0);
 x2(3) = NDB;

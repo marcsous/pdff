@@ -100,14 +100,15 @@ if nargout>1
     psif = complex(-150*Tesla,10);
     for j = 1:10
         r = myfun(psif,te,fat);
-        h = 1e-3;
+        h = 1e-2;
         J = (myfun(psif+h,te,fat)-r)/h;
         psif = psif - pinv(J)*r;
     end
+    %cplot(te,A(:,2),'o');hold on;cplot(te2,exp(2*pi*i*psif*te2));hold off
 end
 
 % exponential fitting function
 function r = myfun(psif,te,data)
-f = exp(2*pi*i*psif*te);
+f = exp(2*pi*i*psif*te); % function
 v = (f'*data)/(f'*f); % varpro
 r = v*f-data; % residual
