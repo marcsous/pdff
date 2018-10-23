@@ -90,7 +90,7 @@ end
 % return variable
 params.B0 = x(1);
 params.R2 = 2*pi*x(2); % convert to 1/s
-params.FF = 100*real(wf(2)/sum(wf)); 
+params.FF = min(max(100*real(wf(2)/sum(wf)),-10),110); 
 params.PH = angle(sum(wf));
 params.NDB = x(3);
 
@@ -100,10 +100,11 @@ if display
     v = 2*ne-6; % no. degrees of freedom
     cov = pinv(full(J'*J))*sse/v; % covariance matrix
     ci95 = sqrt(max(diag(cov),0))*1.96; % confidence intervals
+    x(2) = 2*pi*x(2); ci95(2) = 2*pi*ci95(2); R2 = 2*pi*R2; % 1/s
     
     disp([' initial B0 ' num2str(B0) ' R2* ' num2str(R2)])
     disp([' B0    ' num2str(x(1)) ' ± ' num2str(ci95(1))])
-    disp([' R2*   ' num2str(2*pi*x(2)) ' ± ' num2str(2*pi*ci95(2))])
+    disp([' R2*   ' num2str(x(2)) ' ± ' num2str(ci95(2))])
     disp([' FF    ' num2str(params.FF)])
     disp([' PH    ' num2str(params.PH)])
     disp([' NDB   ' num2str(x(3)) ' ± ' num2str(ci95(3))])
