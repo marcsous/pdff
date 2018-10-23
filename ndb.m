@@ -1,5 +1,6 @@
 function [params sse] = ndb(te,data,Tesla,H2O)
-
+%[params sse] = ndb(te,data,Tesla,H2O)
+%
 % Fat water separation with double bond estimation.
 % WARNING - SLOW!! Only does single pixel fitting.
 %
@@ -13,7 +14,7 @@ function [params sse] = ndb(te,data,Tesla,H2O)
 %  params.B0 is B0 (Hz)
 %  params.R2 is R2* (1/s)
 %  params.FF is FF (%)
-%  params.PH is PH (ra
+%  params.PH is PH (rad)
 
 display = true;
 
@@ -25,14 +26,17 @@ data = reshape(data,ne,1);
 
 %% initialize parameters
 
-tmp = dot(data(1:ne-1),data(2:ne));
-B0 = angle(tmp)/2/pi/mean(diff(te)); % B0 in Hz
-R2 = 10; % initial R2* in 1/s divided by 2pi
-NDB = 3; % no. double bonds
-
 if nargin<4 || isempty(H2O)
     H2O = 4.7; % water freq in ppm
 end
+
+NDB = 3; % no. double bonds
+
+tmp = angle(dot(data(1:ne-1),data(2:ne)));
+B0 = tmp/2/pi/mean(diff(te)); % B0 in Hz
+
+[~,psif] = fat_basis(te,Tesla,NDB,H2O);
+R2 = imag(psif); % R2* in (1/s)/2pi
 
 % make lsqnonlin happy
 te = double(gather(te));
@@ -54,7 +58,6 @@ opts = optimset('display','off');
 [x1,sse1,~,~,~,~,J1] = lsqnonlin(@(x)myfun(x,te,data,Tesla,H2O),x1,LB,UB,opts);
 
 % second estimate (assume B0 is on fat peak)
-[~,psif] = fat_basis(te,Tesla,NDB,H2O);
 x2(1) = x1(1)-real(psif);
 x2(2) = max(x1(2)-imag(psif),0);
 x2(3) = NDB;
@@ -81,7 +84,7 @@ if display
     te = linspace(0,min(te)+max(te),10*ne);
     data = myfun([x(:);wf(:)],te,data,Tesla,H2O);
     hold on; cplot(te,data); hold off
-    title(['||r||=' num2str(norm(r)) ' FF=' num2str(real(wf(2)/sum(wf)),'%.3f') ' NDB=' num2str(x(3),'%.3f')]);
+    title(['FF=' num2str(100*real(wf(2)/sum(wf)),'%.1f') ' NDB=' num2str(x(3),'%.2f')]);
     axis tight; drawnow
 
 end
@@ -116,9 +119,9 @@ end
 function [r wf] = myfun(x,te,data,Tesla,H2O)
 
 % unknowns
-B0 = x(1);   % field map
-R2 = x(2);   % exp decay
-NDB = x(3);  % no. double bonds
+B0 = x(1);  % field map
+R2 = x(2);  % exp decay
+NDB = x(3); % no. double bonds
 
 % water/fat time evolution matrix
 A = fat_basis(te,Tesla,NDB,H2O);
@@ -130,15 +133,17 @@ W = diag(exp(2*pi*i*complex(B0,R2)*te));
 if numel(x)==3
 
     % calculate water, fat and initial phase
-    Mh = inv(real(A'*W'*W*A));
+    Mh = pinv(real(A'*W'*W*A));
     Ab = A'*W'*data; % tricky: W'*W*inv(W) = W'
     p = angle(sum(Ab.*(Mh*Ab)))/2;
     wf = Mh*real(Ab*exp(-i*p))*exp(i*p);
 
-    % recalculate p to absorb sign of wf
-    p = angle(sum(wf));
-    wf = real(wf*exp(-i*p))*exp(i*p);
-
+    % recalculate p to absorb sign of wf (cosmetic)
+    if nargout>1
+        p = angle(sum(wf));
+        wf = real(wf*exp(-i*p))*exp(i*p);
+    end
+    
     % residual
     r = reshape(W*A*wf-data,size(te));
     r = [real(r);imag(r)];

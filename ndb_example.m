@@ -7,14 +7,14 @@ load PHANTOM_NDB_PAPER.mat
 [nx ny ne] = size(data);
 params = zeros(nx,ny,5);
 
-% loop over every pixel
+% loop over x and y dimensions
 for x = 1:nx
     
-    ims(params,[],{'B0 (Hz)','R2* (1/s)','NDB','FF (%)','PHI (rad)'});
+    ims(params,[],{'B0 (Hz)','R2* (1/s)','FF (%)','PHI (rad)','NDB'});
     
     for y = 1:ny
-
-        params(x,y,:) = ndb(te,data(x,y,:),Tesla,[],H2O);
-
+        
+        params(x,y,:) = struct2array(ndb(te,data(x,y,:),Tesla,H2O));
+        
     end
 end
