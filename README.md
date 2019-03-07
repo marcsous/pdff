@@ -1,8 +1,15 @@
 # pdff
 Proton Density Fat Fraction and Number of Double Bonds calculation for MRI
 
-MATLAB code for calculating PDFF and NDB from multiple echos.
+1. MATLAB code for calculating NDB from multiple echos.
 
-Includes dataset from https://doi.org/10.1016/j.mri.2011.07.004
+Includes phantom dataset from https://doi.org/10.1016/j.mri.2011.07.004
 
 Run ndb_example.m for a demo.
+
+
+2. MATLAB code for calculating PDFF from multiple echos.
+
+Field Reguliarized Estimation by Smooth Constrained Optimization (FRESCO).
+
+Includes in vivo dataset from ....
