@@ -10,6 +10,6 @@ Run ndb_example.m for a demo.
 
 2. MATLAB code for calculating PDFF from multiple echos.
 
-Field Reguliarized Estimation by Smooth Constrained Optimization (FRESCO).
+Field Regularized Estimation by Smooth Constrained Optimization (FRESCO).
 
 Includes in vivo dataset from ....
