@@ -1,27 +1,30 @@
-function [A psif] = fat_basis(te,Tesla,NDB,H2O,units)
-% [A psif] = fat_basis(te,Tesla,NDB,H2O,units)
+function [A psif ampl freq] = fat_basis(te,Tesla,NDB,H2O,units)
+% [A psif ampl freq] = fat_basis(te,Tesla,NDB,H2O,units)
 %
 % Function that produces the fat-water matrix. Units can be adjusted
 % to reflect the relative masses of water and fat. Default is proton.
 % For backward compatibility, set NDB=-1 to use old Hamilton values.
 %
 % Inputs:
-%   te (echo times in s)
-%   Tesla (field strength)
-%   NDB (number of double bonds)
-%   H2O (water freq in ppm)
-%   units ('proton' or 'mass')
+%  te (echo times in sec)
+%  Tesla (field strength)
+%  NDB (number of double bonds)
+%  H2O (water freq in ppm)
+%  units ('proton' or 'mass')
 %
 % Ouputs:
-%   A = matrix [water fat] of basis vectors
-%   psif = best fit of fat to exp(2*pi*i*psif*te)
+%  A = matrix [water fat] of basis vectors
+%  psif = best fit of fat to exp(i*B0*te-R2*te)
+%         where B0=real(psif) and R2=imag(psif)
+%         note: B0 unit is rad/s (B0/2pi is Hz)
+% ampl = vector of relative amplitudes of fat peaks
+% freq = vector of frequencies of fat peaks (unit Hz)
 %
-% Ref:
-% Bydder M, Girard O, Hamilton G. Magn Reson Imaging. 2011;29:1041
+% Ref: Bydder M, Girard O, Hamilton G. Magn Reson Imag. 2011;29:1041
 
 %% argument checks
 
-if max(te)>1
+if  max(te)<1e-3 || max(te)>1
     error('''te'' should be in seconds.');
 end
 if ~exist('NDB','var') || isempty(NDB)
@@ -38,8 +41,8 @@ end
 
 if NDB == -1
     % backward compatibility
-    d = [1.300 2.100 0.900 5.300 4.200 2.750];
-    a = [0.700 0.120 0.088 0.047 0.039 0.006];
+    d    = [1.300 2.100 0.900 5.300 4.200 2.750];
+    ampl = [0.700 0.120 0.088 0.047 0.039 0.006];
     awater = 1;
 else
     % fat chemical shifts in ppm
@@ -51,15 +54,15 @@ else
     
     % Gavin's formulas (no. protons per molecule)
     awater = 2;
-    a(1) = NDB*2;
-    a(2) = 1;
-    a(3) = 4;
-    a(4) = NDDB*2;
-    a(5) = 6;
-    a(6) = (NDB-NDDB)*4;
-    a(7) = 6;
-    a(8) = (CL-4)*6-NDB*8+NDDB*2;
-    a(9) = 9;
+    ampl(1) = NDB*2;
+    ampl(2) = 1;
+    ampl(3) = 4;
+    ampl(4) = NDDB*2;
+    ampl(5) = 6;
+    ampl(6) = (NDB-NDDB)*4;
+    ampl(7) = 6;
+    ampl(8) = (CL-4)*6-NDB*8+NDDB*2;
+    ampl(9) = 9;
     
     % the above counts no. molecules so that 1 unit of water = 2
     % protons and 1 unit of fat = sum(a) = (2+6*CL-2*NDB) protons.
@@ -68,12 +71,12 @@ else
         % water = 2 protons and (134+42*CL-2*NDB) units of fat =
         % (2+6*CL-2*NDB) protons. I.e. w and f are in mass units.
         awater = awater/18;
-        a = a/(134+42*CL-2*NDB);
+        ampl = ampl/(134+42*CL-2*NDB);
     else
         % scale by no. protons (important for PDFF) so 1 unit
         % of water = 1 proton and 1 unit of fat = 1 proton.
         awater = awater/2;
-        a = a/sum(a);
+        ampl = ampl/sum(ampl);
     end
 end
 
@@ -89,26 +92,29 @@ fat = te*0;
 water = te*0+awater;
 larmor = 42.57747892*Tesla; % larmor freq (MHz)
 for j = 1:numel(d)
-    freq = larmor*(d(j)-H2O); % Hz relative to water
-    fat = fat + a(j)*exp(2*pi*i*freq*te);
+    freq(j) = larmor*(d(j)-H2O); % relative to water
+    fat = fat + ampl(j)*exp(2*pi*i*freq(j)*te);
 end
 A = [water fat];
 
-%% best fit of fat to complex exponential (gauss newton)
+%% nonlinear fit of fat to complex exp (gauss newton)
 
 if nargout>1
-    psif = complex(-150*Tesla,10);
+    psif = 2*pi*larmor*(1.3-H2O) + 25i; % initial estimate
     for j = 1:10
         r = myfun(psif,te,fat);
-        h = 1e-2;
+        h = 3.5e-4*psif;
         J = (myfun(psif+h,te,fat)-r)/h;
-        psif = psif - pinv(J)*r;
+        psif = psif-pinv(J)*r;
     end
-    %cplot(te,A(:,2),'o');hold on;cplot(te2,exp(2*pi*i*psif*te2));hold off
+    %te2=linspace(0,max(te),10*numel(te)); cplot(te,A(:,2),'o'); title([real(psif);imag(psif)]);
+    %hold on;cplot(te2,exp(2*pi*i*real(psif)*te2-imag(psif)*te2));hold off;
 end
 
 % exponential fitting function
 function r = myfun(psif,te,data)
-f = exp(2*pi*i*psif*te); % function
+B0 = real(psif); % rad/s
+R2 = imag(psif); % 1/s
+f = exp(i*B0*te - R2*te);
 v = (f'*data)/(f'*f); % varpro
 r = v*f-data; % residual
