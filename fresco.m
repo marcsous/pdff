@@ -244,6 +244,14 @@ params.FF = gather(squeeze(100*x(2,:,:,:)./sum(x))); % FF (%)
 params.PH = gather(squeeze(phi)); % initial phase (rad)
 sse = gather(squeeze(real(dot(r,r)))); % sum of squares error
 
+% mask all zero pixels 
+mask = gather(~mask);
+params.B0(mask) = 0;
+params.R2(mask) = 0;
+params.FF(mask) = 0;
+params.PH(mask) = 0;
+sse(mask) = 0;
+
 %% nonlinear least squares fitting
 function [psi r phi x] = nlsfit(psi,te,data,opts)
 
