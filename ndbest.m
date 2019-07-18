@@ -17,7 +17,7 @@ function [params sse] = ndbest(te,data,Tesla,H2O)
 %  params.PH is PH (rad)
 %  params.NDB is NDB
 
-display = 1;
+display = 1; % slow but useful
 
 %% sizes
 
@@ -27,13 +27,19 @@ data = reshape(data,ne,1);
 
 %% initialize parameters
 
+% initial estimates
 tmp = angle(dot(data(1:ne-1),data(2:ne)));
-B0 = tmp/2/pi/mean(diff(te)); % B0 in Hz
-R2 = 10; % R2* in (1/s)/2pi
+B0 = tmp/mean(diff(te)); % B0 in rad/s
+R2 = 50; % R2* in 1/s
 NDB = 3; % no. double bonds
 
+% bounds (B0 R2 NDB)
+LB = [-Inf  0  1];
+UB = [+Inf 200 6];
+
+% water freq in ppm
 if nargin<4 || isempty(H2O)
-    H2O = 4.7; % water freq in ppm
+    H2O = 4.7; 
 end
 
 % make lsqnonlin happy
@@ -47,13 +53,10 @@ H2O = double(gather(H2O));
 
 %% nonlinear fitting
 
-x1 = [B0   R2 NDB];
-LB = [-Inf  0  1 ];
-UB = [+Inf 100 6 ];
-
 opts = optimset('display','off');
 
 % first estimate (assume B0 is on water peak)
+x1 = [B0 R2 NDB];
 [x1,sse1,~,~,~,~,J1] = lsqnonlin(@(x)myfun(x,te,data,Tesla,H2O),x1,LB,UB,opts);
 
 % second estimate (assume B0 is on fat peak)
@@ -80,18 +83,18 @@ end
 % display
 if display
     
-    cplot(te,data,'o'); xlabel('te (s)');
-    te = linspace(0,min(te)+max(te),10*ne);
-    data = myfun([x(:);wf(:)],te,data,Tesla,H2O);
-    hold on; cplot(te,data); hold off
+    cplot(1000*te,data,'o'); xlabel('te (ms)');
+    te2 = linspace(0,min(te)+max(te),10*ne);
+    data2 = myfun([x(:);wf(:)],te2,data,Tesla,H2O);
+    hold on; cplot(1000*te2,data2); hold off
     title(['FF=' num2str(100*real(wf(2)/sum(wf)),'%.1f') ' NDB=' num2str(x(3),'%.2f')]);
     axis tight; drawnow
 
 end
 
 % return variable
-params.B0 = x(1);
-params.R2 = 2*pi*x(2); % convert to 1/s
+params.B0 = x(1)/2/pi; % units Hz
+params.R2 = x(2); % units 1/s
 params.FF = min(max(100*real(wf(2)/sum(wf)),-10),110); 
 params.PH = angle(sum(wf));
 params.NDB = x(3);
@@ -102,10 +105,9 @@ if display
     v = 2*ne-6; % no. degrees of freedom
     cov = pinv(full(J'*J))*sse/v; % covariance matrix
     ci95 = sqrt(max(diag(cov),0))*1.96; % confidence intervals
-    x(2) = 2*pi*x(2); ci95(2) = 2*pi*ci95(2); R2 = 2*pi*R2; % 1/s
     
-    disp([' initial B0 ' num2str(B0) ' R2* ' num2str(R2)])
-    disp([' B0    ' num2str(x(1)) ' ± ' num2str(ci95(1))])
+    disp([' initial B0 ' num2str(B0/2/pi) ' R2* ' num2str(R2)])
+    disp([' B0    ' num2str(x(1)/2/pi) ' ± ' num2str(ci95(1)/2/pi)])
     disp([' R2*   ' num2str(x(2)) ' ± ' num2str(ci95(2))])
     disp([' FF    ' num2str(params.FF)])
     disp([' PH    ' num2str(params.PH)])
@@ -120,26 +122,26 @@ end
 function [r wf] = myfun(x,te,data,Tesla,H2O)
 
 % unknowns
-B0 = x(1);  % field map
-R2 = x(2);  % exp decay
+B0 = x(1);  % field map (rad/s)
+R2 = x(2);  % exp decay (1/s)
 NDB = x(3); % no. double bonds
 
 % water/fat time evolution matrix
 A = fat_basis(te,Tesla,NDB,H2O);
 
 % fieldmap and R2*
-W = diag(exp(2*pi*i*complex(B0,R2)*te));
+W = diag(exp(i*complex(B0,R2)*te));
 
 % two paths: one for residual, one for display
 if numel(x)==3
 
     % calculate water, fat and initial phase
     Mh = pinv(real(A'*W'*W*A));
-    Ab = A'*W'*data; % tricky: W'*W*inv(W) = W'
+    Ab = A'*W'*data;
     p = angle(sum(Ab.*(Mh*Ab)))/2;
     wf = Mh*real(Ab*exp(-i*p))*exp(i*p);
 
-    % recalculate p to absorb sign of wf (cosmetic)
+    % recalculate p to absorb sign of wf
     if nargout>1
         p = angle(sum(wf));
         wf = real(wf*exp(-i*p))*exp(i*p);
