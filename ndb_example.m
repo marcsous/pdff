@@ -2,8 +2,7 @@
 %
 % https://doi.org/10.1016/j.mri.2011.07.004
 %
-%load PHANTOM_NDB_PAPER.mat
-load spine_ucla.mat
+load PHANTOM_NDB_PAPER.mat
 
 H2O = 4.7;
 data = squeeze(data(:,:,3,:));
