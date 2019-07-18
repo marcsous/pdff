@@ -4,9 +4,6 @@
 %
 load PHANTOM_NDB_PAPER.mat
 
-H2O = 4.7;
-data = squeeze(data(:,:,3,:));
-
 [nx ny ne] = size(data);
 params = zeros(nx,ny,5);
 
