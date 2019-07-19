@@ -10,6 +10,6 @@ Proton Density Fat Fraction and Number of Double Bonds calculation for MRI
 
 2. MATLAB code for calculating PDFF from multiple echos.
 
-* Field Regularized Estimation by Smooth Constrained Optimization (FRESCO).
+* Phase Regularized Estimation using Smoothing and Constrained Optimization (PRESCO).
 
 * Includes in vivo dataset from ....
