@@ -28,12 +28,11 @@ function [params sse] = presco(te,data,Tesla,varargin)
 % demo code
 if nargin==0
     load invivo.mat;
-    %data = data(:,:,1:4); te = te(1:4);
     %load PHANTOM_NDB_PAPER.mat
     %load phantom_16echo_bipolar.mat;
     %te = te(1:2:end); data=data(:,:,1:2:end);
     %load liver_gre_3d_2x3.mat; data = data(:,:,31,:);
-    load liver_gre_3d_1x6.mat; data = data(:,:,23,:); 
+    %load liver_gre_3d_1x6.mat; data = data(:,:,24,:); 
 elseif isa(te,'struct')
     % partial handling of ISMRM F/W toolbox structure
     if nargin>1; varargin = {data,Tesla,varargin{:}}; end
@@ -60,7 +59,7 @@ opts.smooth_field = 1; % smooth field (1=on 0=off)
 opts.ndb = 2.5; % no. double bonds
 opts.h2o = 4.7; % water frequency ppm
 opts.filter = ones(3); % low pass filter
-opts.maxit = [10 10]; % max. iterations (inner outer)
+opts.maxit = [20 10]; % max. iterations (inner outer)
 opts.noise = []; % noise std (if available)
 
 % debugging options
@@ -321,11 +320,11 @@ for iter = 1:opts.maxit(1)
            opts.muB.^2.*real(transform(arg,opts)-PSI).^2+...
            opts.muR.^2.*imag(transform(arg,opts)-PSI).^2; 
 
-    % basic linesearch
+    % crude linesearch
     for k = 1:3
         ok = cost(psi+dpsi) < cost(psi);
         psi(ok) = psi(ok) + dpsi(ok);
-        dpsi(~ok) = -dpsi(~ok) * 0.3;
+        dpsi(~ok) = dpsi(~ok) / 2;
     end
 
 end
