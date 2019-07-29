@@ -49,7 +49,7 @@ end
 
 % defaults
 opts.muB = 0.00; % regularization for B0
-opts.muR = 0.01; % regularization for R2*
+opts.muR = 0.03; % regularization for R2*
 opts.nonnegFF = 0; % nonnegative pdff (1=on 0=off)
 opts.nonnegR2 = 1; % nonnegative R2* (1=on 0=off)
 opts.smooth_phase = 1; % smooth phase (1=on 0=off)
@@ -59,7 +59,7 @@ opts.smooth_field = 1; % smooth field (1=on 0=off)
 opts.ndb = 2.5; % no. double bonds
 opts.h2o = 4.7; % water frequency ppm
 opts.filter = ones(3); % low pass filter
-opts.maxit = [20 10]; % max. iterations (inner outer)
+opts.maxit = [10 10]; % max. iterations (inner outer)
 opts.noise = []; % noise std (if available)
 
 % debugging options
@@ -265,9 +265,9 @@ for iter = 1:opts.maxit(end)
     if iter < opts.maxit(end)/2
         tmp.smooth_phase = 0;
         tmp.smooth_field = 0;
-        tmp.nonnegR2 = 1;
+        tmp.nonnegR2 = 0;
         tmp.muB = 0;
-        tmp.muR = opts.noise;        
+        tmp.muR = opts.noise/iter;        
     end
     
     % local optimization
