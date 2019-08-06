@@ -24,7 +24,7 @@ function [A psif ampl freq] = fat_basis(te,Tesla,NDB,H2O,units)
 
 %% argument checks
 
-if  max(te)<1e-3 || max(te)>1
+if max(te)<1e-3 || max(te)>1
     error('''te'' should be in seconds.');
 end
 if ~exist('NDB','var') || isempty(NDB)
@@ -46,7 +46,7 @@ if NDB == -1
     awater = 1;
 else
     % fat chemical shifts in ppm
-    d = [5.29 5.19 4.2 2.75 2.2 2.02 1.6 1.3 0.9];
+    d = [5.29 5.19 4.20 2.75 2.24 2.02 1.60 1.30 0.90];
     
     % Mark's heuristic formulas
     CL = 16.8+0.25*NDB;
@@ -82,10 +82,11 @@ end
 
 %% fat water matrix
 
-% put te in the right format
+% put variables in the right format
 ne = numel(te);
 te = reshape(te,ne,1);
 te = gather(te);
+Tesla = cast(Tesla,'like',te);
 
 % time evolution matrix
 fat = te*0;
@@ -100,21 +101,18 @@ A = [water fat];
 %% nonlinear fit of fat to complex exp (gauss newton)
 
 if nargout>1
-    psif = 2*pi*larmor*(1.3-H2O) + 25i; % initial estimate
-    for j = 1:10
-        r = myfun(psif,te,fat);
-        h = 3.5e-4*psif;
-        J = (myfun(psif+h,te,fat)-r)/h;
-        psif = psif-pinv(J)*r;
-    end
-    %te2=linspace(0,max(te),10*numel(te)); cplot(te,A(:,2),'o'); title([real(psif);imag(psif)]);
-    %hold on;cplot(te2,exp(2*pi*i*real(psif)*te2-imag(psif)*te2));hold off;
+    psif = [2*pi*larmor*(1.3-H2O) 50]; % initial estimates (rad/s)
+    psif = double(gather(psif)); % keep MATLAB happy
+    psif = fminsearch(@(psif)myfun(psif,double(te),double(fat)),psif);
+    psif = cast(complex(psif(1),psif(2)),'like',te);
+    %te2=linspace(0,max(te),100*numel(te)); cplot(1000*te,A(:,2),'o');
+    %hold on; cplot(1000*te2,exp(i*psif*te2)); title(num2str(psif)); hold off; keyboard
 end
 
 % exponential fitting function
-function r = myfun(psif,te,data)
-B0 = real(psif); % rad/s
-R2 = imag(psif); % 1/s
-f = exp(i*B0*te - R2*te);
+function normr = myfun(psif,te,data)
+psif = complex(psif(1),psif(2));
+f = exp(i*psif*te); % function
 v = (f'*data)/(f'*f); % varpro
 r = v*f-data; % residual
+normr = double(gather(norm(r)));
