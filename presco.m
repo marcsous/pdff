@@ -3,7 +3,7 @@ function [params sse] = presco(te,data,Tesla,varargin)
 %[params sse] = presco(imDataParams,varargin)
 %
 % Phase regularized estimation using smoothing and
-% constrained optimization for the proton density
+% constrained optimization of the proton density
 % fat fraction (PDFF).
 %
 % Works best with phase unwrapping (e.g. unwrap2.m &
