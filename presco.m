@@ -59,7 +59,7 @@ opts.smooth_field = 1; % smooth field (1=on 0=off)
 opts.ndb = 2.5; % no. double bonds
 opts.h2o = 4.7; % water frequency ppm
 opts.filter = ones(3); % low pass filter
-opts.maxit = [20 10]; % max. iterations (inner outer)
+opts.maxit = [10 10]; % max. iterations (inner outer)
 opts.noise = []; % noise std (if available)
 
 % debugging options
@@ -221,14 +221,12 @@ end
 % if there are still fat-water swaps present so we can take
 % liberties and apply them only when they make sense. this
 % might mean setting smooth_phase to 0 on early iterations.
-
+smooth_phase = opts.smooth_phase;
+        
 for iter = 1:opts.maxit(end)
-    
-    fprintf(' Outer loop %i\n',iter);
 
-    % fiddle with options, as above
+    % fiddle with options, as discussed above
     if iter==1
-        smooth_phase = opts.smooth_phase;
         opts.smooth_phase = 0;
     else
         opts.smooth_phase = smooth_phase;
@@ -236,24 +234,26 @@ for iter = 1:opts.maxit(end)
     
     % local optimization
     [r psi phi x] = nlsfit(psi,te,data,opts);
-    
-     % pixel swaps (least squares)
-    if opts.unwrap && iter==1
+
+    fprintf(' Outer loop %i\tnorm=%f\n',iter,norm(r(:)));
+
+    % pixel swaps (least squares)
+    if opts.unwrap && iter==1 && iter<opts.maxit(end)
         s = nlsfit(psi-opts.psif,te,data,opts);
         bad = dot(r,r) > dot(s,s);
         psi(bad) = psi(bad)-opts.psif;
     end
-    
+
     % single pixel fitting is done
     if numel(te)==numel(data); break; end
-
+    
     % regional swaps (unwrapping)
-    if opts.unwrap && iter>1
+    if opts.unwrap && iter>1 && iter<opts.maxit(end)
         psi = unswap(psi,te,data,opts);
     end
 
     % smooth field
-    if opts.smooth_field && iter>1
+    if opts.smooth_field && iter>1 && iter<opts.maxit(end)
         B0 = real(squeeze(psi)); % only smooth B0
         B0 = medfiltn(B0,size(opts.filter),opts.mask);
         psi = reshape(B0,size(psi))+i*imag(psi);
@@ -296,10 +296,10 @@ for iter = 1:opts.maxit(1)
     GG = gB.^2+gR.^2;
     GHG = gB.^2.*H1+2*gB.*gR.*H2+gR.^2.*H3;
 
-    % damping to reduce step size
-    damp = median(GHG(opts.mask));
-    step = GG ./ (GHG+damp/iter);
-    dpsi = -step.*G;
+    % damping to stabilize step size
+    damp = median(GHG(opts.mask)) / iter^2;
+    step = GG ./ (GHG + damp);
+    dpsi = -step .* G;
     
     % cost function = sum of squares residual + penalty terms
     cost = @(arg)sum(abs(pclsr(arg,te,data,opts)).^2)+...
@@ -310,9 +310,9 @@ for iter = 1:opts.maxit(1)
     for k = 1:3
         ok = cost(psi+dpsi) < cost(psi);
         psi(ok) = psi(ok) + dpsi(ok);
-        dpsi(~ok) = dpsi(~ok) / 2;
+        dpsi(~ok) = dpsi(~ok) * 0.33;
     end
-
+    
 end
 
 % final phi and x
@@ -502,10 +502,10 @@ function psi = unswap(psi,te,data,opts)
 % would be better if we could do a single pass
 % and choose the best option.
 
-% swaps at 2 frequences (Hz)
-swap(1) = 1/min(diff(te)); % aliasing
-swap(2) = -real(opts.psif)/2/pi; % fat-water
-swap(3) = abs(diff(swap(1:2))); % both
+% swap can occur at 2 different frequences
+swap(1) = 1/min(diff(te)); % aliasing (Hz)
+swap(2) = -real(opts.psif)/2/pi; % fat-water (Hz)
+swap(3) = abs(diff(swap(1:2))); % both (Hz)
 
 % frequencies too close, skip the difference
 if min(swap(3)./swap(1:2)) < 0.2; swap(3) = []; end
