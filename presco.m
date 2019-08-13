@@ -29,9 +29,7 @@ function [params sse] = presco(te,data,Tesla,varargin)
 if nargin==0
     load invivo.mat;
     %load PHANTOM_NDB_PAPER.mat
-    %load phantom_16echo_bipolar.mat;
-    %te = te(1:2:end); data=data(:,:,1:2:end);
-    %load liver_gre_3d_2x3.mat; data = data(:,:,31,:);
+    %load liver_gre_3d_2x3.mat; data = data(:,:,27,:);
     %load liver_gre_3d_1x6.mat; data = data(:,:,31,:); 
 elseif isa(te,'struct')
     % partial handling of ISMRM F/W toolbox structure
@@ -48,8 +46,8 @@ end
 %% options
 
 % defaults
-opts.muB = 0.000; % regularization for B0
-opts.muR = 0.033; % regularization for R2*
+opts.muB = 0.00; % regularization for B0
+opts.muR = 0.03; % regularization for R2*
 opts.nonnegFF = 0; % nonnegative pdff (1=on 0=off)
 opts.nonnegR2 = 1; % nonnegative R2* (1=on 0=off)
 opts.smooth_phase = 1; % smooth phase (1=on 0=off)
@@ -217,18 +215,22 @@ end
 %% main algorithm
 
 % the first opts.maxit-1 iterations are really only to get
-% rid of phase swaps. certain constraints don't make sense
-% if there are still fat-water swaps present so we can take
-% liberties and apply them only when they make sense. this
-% might mean setting smooth_phase to 0 on early iterations.
+% rid of fat-water swaps. certain constraints don't make
+% sense if there are still fat-water swaps present so we can
+% take liberties and apply constraints only when they make
+% sense. this might mean setting smooth_phase and muB to 0
+% on the first iterations.
+muB = opts.muB;
 smooth_phase = opts.smooth_phase;
         
 for iter = 1:opts.maxit(end)
 
     % fiddle with options, as discussed above
     if iter==1
+        opts.muB = 0;
         opts.smooth_phase = 0;
     else
+        opts.muB = muB;
         opts.smooth_phase = smooth_phase;
     end
     
@@ -237,24 +239,25 @@ for iter = 1:opts.maxit(end)
 
     fprintf(' Outer loop %i\tnorm=%f\n',iter,norm(r(:)));
 
-    % pixel swaps (least squares)
-    if opts.unwrap && iter==1 && iter<opts.maxit(end)
+    % pixel swaps (min norm)
+    if iter==1
         s = nlsfit(psi-opts.psif,te,data,opts);
         bad = dot(r,r) > dot(s,s);
         psi(bad) = psi(bad)-opts.psif;
     end
 
-    % single pixel fitting is done
+    % fitting is done
+    if iter==opts.maxit(end); break; end
     if numel(te)==numel(data); break; end
     
     % regional swaps (unwrapping)
-    if opts.unwrap && iter>1 && iter<opts.maxit(end)
+    if opts.unwrap && iter>1
         psi = unswap(psi,te,data,opts);
     end
 
-    % smooth field
-    if opts.smooth_field && iter>1 && iter<opts.maxit(end)
-        B0 = real(squeeze(psi)); % only smooth B0
+    % pixel swaps (smoothing)
+    if opts.smooth_field && iter>1
+        B0 = real(squeeze(psi)); % smooth B0 only
         B0 = medfiltn(B0,size(opts.filter),opts.mask);
         psi = reshape(B0,size(psi))+i*imag(psi);
     end
@@ -296,12 +299,12 @@ for iter = 1:opts.maxit(1)
     GG = gB.^2+gR.^2;
     GHG = gB.^2.*H1+2*gB.*gR.*H2+gR.^2.*H3;
 
-    % damping to stabilize step size
-    damp = median(GHG(opts.mask)) / iter^2;
-    step = GG ./ (GHG + damp);
+    % damping stabilizes step size
+    damp = median(GHG(opts.mask));
+    step = GG ./ (GHG + damp/100);
     dpsi = -step .* G;
     
-    % cost function = sum of squares residual + penalty terms
+    % cost function = sum of squares error + penalty terms
     cost = @(arg)sum(abs(pclsr(arg,te,data,opts)).^2)+...
            opts.muB.^2.*real(transform(arg,opts)-PSI).^2+...
            opts.muR.^2.*imag(transform(arg,opts)-PSI).^2; 
@@ -310,9 +313,9 @@ for iter = 1:opts.maxit(1)
     for k = 1:3
         ok = cost(psi+dpsi) < cost(psi);
         psi(ok) = psi(ok) + dpsi(ok);
-        dpsi(~ok) = dpsi(~ok) * 0.33;
+        dpsi(~ok) = dpsi(~ok) / 10;
     end
-    
+
 end
 
 % final phi and x
@@ -484,7 +487,7 @@ B0 = real(psi);
 R2 = imag(psi);
 
 if opts.nonnegR2
-    dR2 = sign(R2) + (R2==0); % fix deriv=0 at R2=0
+    dR2 = sign(R2) + (R2==0); % fix deriv at R2=0
     R2 = abs(R2);
 else
     dR2 = 1;
@@ -502,7 +505,7 @@ function psi = unswap(psi,te,data,opts)
 % would be better if we could do a single pass
 % and choose the best option.
 
-% swap can occur at 2 different frequences
+% swapping can occur at 2 frequences
 swap(1) = 1/min(diff(te)); % aliasing (Hz)
 swap(2) = -real(opts.psif)/2/pi; % fat-water (Hz)
 swap(3) = abs(diff(swap(1:2))); % both (Hz)
@@ -534,7 +537,7 @@ end
 % remove gross aliasing (cosmetic)
 alias_freq = 2*pi/min(diff(te)); % aliasing freq (rad/s)
 center_freq = median(B0(opts.mask)); % center B0 (rad/s)
-nwraps = fix(center_freq / alias_freq); % no. of wraps
+nwraps = round(center_freq / alias_freq); % no. of wraps
 B0(opts.mask) = B0(opts.mask)-gather(nwraps*alias_freq);
 
 % back to complex
