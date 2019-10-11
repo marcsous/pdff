@@ -13,6 +13,9 @@ if nargin<2 || isempty(P)
 elseif ~isvector(P) || any(P<1) || nnz(mod(P,1))
     error('something wrong with P');
 end
+if ~isreal(A)
+    error('median not well defined for complex.');
+end
 if numel(P)>ndims(A)
     error('P has more dims than A');
 else
@@ -40,7 +43,7 @@ for k = 1:prod(P)
 end
 
 % make data matrix
-B = zeros(numel(A),numel(P),'like',A);
+B = zeros(numel(A),prod(P),'like',A);
 
 for k = 1:prod(P)
     tmp = circshift(A,S(:,k)-fix(P/2)-1);
