@@ -30,7 +30,7 @@ if nargin==0
     load invivo.mat;
     %load PHANTOM_NDB_PAPER.mat
     %load liver_gre_3d_2x3.mat; data = data(:,:,27,:);
-    %load liver_gre_3d_1x6.mat; data = data(:,:,31,:); 
+    %load liver_gre_3d_1x6.mat; data = data(:,:,26,:); 
 elseif isa(te,'struct')
     % partial handling of ISMRM F/W toolbox structure
     if nargin>1; varargin = {data,Tesla,varargin{:}}; end
@@ -45,9 +45,9 @@ end
 
 %% options
 
-% defaults
+% constraints
 opts.muB = 0.00; % regularization for B0
-opts.muR = 0.03; % regularization for R2*
+opts.muR = 0.01; % regularization for R2*
 opts.nonnegFF = 0; % nonnegative pdff (1=on 0=off)
 opts.nonnegR2 = 1; % nonnegative R2* (1=on 0=off)
 opts.smooth_phase = 1; % smooth phase (1=on 0=off)
@@ -57,8 +57,8 @@ opts.smooth_field = 1; % smooth field (1=on 0=off)
 opts.ndb = 2.5; % no. double bonds
 opts.h2o = 4.7; % water frequency ppm
 opts.filter = ones(3); % low pass filter
-opts.maxit = [10 10]; % max. iterations (inner outer)
 opts.noise = []; % noise std (if available)
+opts.maxit = [10 10 3]; % iterations (inner outer linesearch)
 
 % debugging options
 opts.unwrap = 1; % use phase unwrapping of fieldmap (0=off)
@@ -74,7 +74,12 @@ for k = 1:2:numel(varargin)
     if ~isfield(opts,varargin{k})
         error('''%s'' is not a valid option.',varargin{k});
     end
-    opts.(varargin{k}) = varargin{k+1};
+    if ~isequal(varargin{k},'maxit')
+        opts.(varargin{k}) = varargin{k+1};
+    else
+        n = numel(varargin{k+1});
+        opts.(varargin{k})(1:n) = varargin{k+1};
+    end
 end
 if opts.none
     opts.muB = 0;
@@ -121,7 +126,7 @@ if isempty(opts.noise)
         end
     end
     X = min(svd(X'*X)); % smallest sval represents noise only
-    opts.noise = gather(sqrt(X/nnz(data))); % normalize for 0's
+    opts.noise = gather(sqrt(X/nnz(data))); % normalize for 0s
 end
 
 % time evolution matrix
@@ -212,21 +217,27 @@ if ~isscalar(opts.muB)
     opts.muB = reshape(opts.muB,size(psi));
 end
 
+% single pixel fitting doesn't need unwrapping
+if numel(te)==numel(data)
+    opts.maxit(2) = 1;
+end
+
 %% main algorithm
 
 % the first opts.maxit-1 iterations are really only to get
 % rid of fat-water swaps. certain constraints don't make
 % sense if there are still fat-water swaps present so we can
 % take liberties and apply constraints only when they make
-% sense. this might mean setting smooth_phase and muB to 0
-% on the first iterations.
+% sense. e.g. this may mean setting muB and smooth_phase to
+% 0 on the first iterations.
+
 muB = opts.muB;
 smooth_phase = opts.smooth_phase;
         
-for iter = 1:opts.maxit(end)
+for iter = 1:opts.maxit(2)
 
     % fiddle with options, as discussed above
-    if iter==1
+    if iter==1 && opts.maxit(2)>1
         opts.muB = 0;
         opts.smooth_phase = 0;
     else
@@ -236,32 +247,29 @@ for iter = 1:opts.maxit(end)
     
     % local optimization
     [r psi phi x] = nlsfit(psi,te,data,opts);
-
-    fprintf(' Outer loop %i\tnorm=%f\n',iter,norm(r(:)));
-
-    % pixel swaps (min norm)
-    if iter==1
-        s = nlsfit(psi-opts.psif,te,data,opts);
-        bad = dot(r,r) > dot(s,s);
-        psi(bad) = psi(bad)-opts.psif;
-    end
-
-    % fitting is done
-    if iter==opts.maxit(end); break; end
-    if numel(te)==numel(data); break; end
+    fprintf(' Iter %i\t%f\n',iter,norm(r(:)));
     
-    % regional swaps (unwrapping)
-    if opts.unwrap && iter>1
-        psi = unswap(psi,te,data,opts);
+    % deal with pixel swapping
+    if iter<opts.maxit(2)
+        if opts.unwrap
+            if iter==1 && isempty(opts.psi)
+                % estimate based on least squares
+                s = nlsfit(psi-opts.psif,te,data,opts);
+                bad = dot(r,r) > dot(s,s);
+                psi(bad) = psi(bad)-opts.psif;
+            elseif iter>2
+                % phase unwrapping
+                psi = unswap(psi,te,data,opts);
+            end
+        end
+        if opts.smooth_field
+            % low pass filtering
+            B0 = real(squeeze(psi));
+            B0 = medfiltn(B0,size(opts.filter),opts.mask);
+            psi = reshape(B0,size(psi))+i*imag(psi);
+        end
     end
 
-    % pixel swaps (smoothing)
-    if opts.smooth_field && iter>1
-        B0 = real(squeeze(psi)); % smooth B0 only
-        B0 = medfiltn(B0,size(opts.filter),opts.mask);
-        psi = reshape(B0,size(psi))+i*imag(psi);
-    end
-    
 end
 
 %% return parameters in correct format
@@ -295,22 +303,22 @@ for iter = 1:opts.maxit(1)
     H2 = real(dot(JB,JR));
     H3 = real(dot(JR,JR))+opts.muR.^2;
 
-    % Cauchy point = (G'G)/(G'HG)
+    % Cauchy point: step = (G'G)/(G'HG)
     GG = gB.^2+gR.^2;
     GHG = gB.^2.*H1+2*gB.*gR.*H2+gR.^2.*H3;
 
-    % damping stabilizes step size
-    damp = median(GHG(opts.mask));
-    step = GG ./ (GHG + damp/100);
+    % stabilize step size: small and nonzero
+    damp = median(GHG(opts.mask)) / 1000;
+    step = GG ./ (GHG + damp) / opts.maxit(3);
     dpsi = -step .* G;
-    
-    % cost function = sum of squares error + penalty terms
+
+    % cost function = sum of squares error + penalties
     cost = @(arg)sum(abs(pclsr(arg,te,data,opts)).^2)+...
            opts.muB.^2.*real(transform(arg,opts)-PSI).^2+...
            opts.muR.^2.*imag(transform(arg,opts)-PSI).^2; 
 
-    % crude linesearch
-    for k = 1:3
+    % basic linesearch
+    for k = 1:opts.maxit(3)
         ok = cost(psi+dpsi) < cost(psi);
         psi(ok) = psi(ok) + dpsi(ok);
         dpsi(~ok) = dpsi(~ok) / 10;
@@ -335,7 +343,7 @@ elseif opts.display
     tmp(1,:,:,1) = phi(1,:,:,mid); % phase (rad)
     tmp = real(tmp); tmp = squeeze(tmp); tmp(isnan(tmp)) = 0; % NaN from 0/0
     txt = {'\phi (rad)','B0 (Hz)','PDFF (%)','R2* (1/s)'};
-    s = {[-1 1]*pi,[-1 1]*abs(opts.psif)/7,[0 109],[0 0.2/min(te)]};
+    s = {[-1 1]*pi,[-1 1]*abs(opts.psif)/8,[0 105],[0 0.2/min(te)]};
     for k = 1:4
         subplot(2,2,k); imagesc(tmp(:,:,k),s{k});
         title(txt{k}); colorbar; axis off;
@@ -400,6 +408,13 @@ if opts.nonnegFF
     a = dot(WAx,b)./max(dot(WAx,WAx),eps(opts.noise));
     x = bsxfun(@times,abs(a),x);
     phi = angle(a);
+    if opts.smooth_phase
+        p = abs(p).*exp(i*phi);
+        p = reshape(p,nx,ny,nz,1);
+        p = convn(p,opts.filter,'same');
+        p = reshape(p,1,nx*ny*nz);
+        phi = angle(p);
+    end
 end
 
 % residual
@@ -481,20 +496,20 @@ JR = reshape(JR,ne,nx,ny,nz);
 phi = reshape(phi,1,nx,ny,nz);
 
 %% change of variable for nonnegative R2*
-function [psi dR2] = transform(psi,opts)
+function [tpsi dR2] = transform(psi,opts)
 
 B0 = real(psi);
 R2 = imag(psi);
 
 if opts.nonnegR2
     dR2 = sign(R2) + (R2==0); % fix deriv at R2=0
-    R2 = abs(R2);
+    R2 = abs(R2); % rectify negative values
 else
     dR2 = 1;
 end
 
 % transformed psi
-psi = complex(B0,R2);
+tpsi = complex(B0,R2);
 
 %% use phase unwrapping to remove 2pi boundaries
 function psi = unswap(psi,te,data,opts)
