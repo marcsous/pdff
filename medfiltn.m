@@ -29,18 +29,15 @@ if nargin>2
     A(~mask) = NaN; % let's use use omitnan flag
 end
 
-% generate shift indicies
-S = zeros(numel(P),prod(P));
-
-for k = 1:prod(P)
-    switch numel(P)
-        case 1; [S(1,k)] = ind2sub(P,k);
-        case 2; [S(1,k) S(2,k)] = ind2sub(P,k);
-        case 3; [S(1,k) S(2,k) S(3,k)] = ind2sub(P,k);
-        case 4; [S(1,k) S(2,k) S(3,k) S(4,k)] = ind2sub(P,k);
-        otherwise; error('high dim not implemented - fix me');
-    end
+% generate shift indicies (S)
+switch numel(P)
+    case 1; [S(1,:)] = ind2sub(P,1:prod(P));
+    case 2; [S(1,:) S(2,:)] = ind2sub(P,1:prod(P));
+    case 3; [S(1,:) S(2,:) S(3,:)] = ind2sub(P,1:prod(P));
+    case 4; [S(1,:) S(2,:) S(3,:) S(4,:)] = ind2sub(P,1:prod(P));
+    otherwise; error('high dim not implemented - fix me');
 end
+
 
 % make data matrix
 B = zeros(numel(A),prod(P),'like',A);
