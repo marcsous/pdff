@@ -12,4 +12,4 @@ Proton Density Fat Fraction and Number of Double Bonds calculation for MRI
 
 * Phase Regularized Estimation using Smoothing and Constrained Optimization (PRESCO).
 
-* Includes in vivo dataset from ....
+* Includes in vivo dataset from https://www.sciencedirect.com/science/article/pii/S0730725X1930476X
