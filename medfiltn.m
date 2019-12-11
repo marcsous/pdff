@@ -14,7 +14,7 @@ elseif ~isvector(P) || any(P<1) || nnz(mod(P,1))
     error('something wrong with P');
 end
 if ~isreal(A)
-    error('median not well defined for complex.');
+    warning('median not well defined for complex values');
 end
 if numel(P)>ndims(A)
     error('P has more dims than A');
@@ -26,7 +26,7 @@ if nargin>2
         error('something wrong with mask');
     end
     origA = A;
-    A(~mask) = NaN; % let's use use omitnan flag
+    A(~mask) = NaN; % let's us use omitnan flag
 end
 
 % generate shift indicies (S)
@@ -35,9 +35,9 @@ switch numel(P)
     case 2; [S(1,:) S(2,:)] = ind2sub(P,1:prod(P));
     case 3; [S(1,:) S(2,:) S(3,:)] = ind2sub(P,1:prod(P));
     case 4; [S(1,:) S(2,:) S(3,:) S(4,:)] = ind2sub(P,1:prod(P));
-    otherwise; error('high dim not implemented - fix me');
+    case 5; [S(1,:) S(2,:) S(3,:) S(4,:) S(5,:)] = ind2sub(P,1:prod(P));
+    otherwise; error('high dimensions not implemented - fix me');
 end
-
 
 % make data matrix
 B = zeros(numel(A),prod(P),'like',A);
@@ -47,7 +47,7 @@ for k = 1:prod(P)
     B(:,k) = reshape(tmp,numel(A),1);
 end
 
-% median along shift dim
+% median along shift dim - for complex maybe use medoid?
 B = median(B,2,'omitnan');
 
 % use orig values when all masked
