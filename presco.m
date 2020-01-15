@@ -30,7 +30,7 @@ if nargin==0
     load invivo.mat;
     %load PHANTOM_NDB_PAPER.mat
     %load liver_gre_3d_2x3.mat; data = data(:,:,27,:);
-    %load liver_gre_3d_1x6.mat; %data = data(:,:,27,:); 
+    %load liver_gre_3d_1x6.mat; data = data(:,:,27,:); 
 elseif isa(te,'struct')
     % partial handling of ISMRM F/W toolbox structure
     if nargin>1; varargin = {data,Tesla,varargin{:}}; end
@@ -155,7 +155,7 @@ tmp = dot(data,data,4);
 [~,k] = max(tmp(:));
 [dx dy dz] = ind2sub([nx ny nz],k);
 data = circshift(data,1-[dx dy dz]);
-data = ifft(ifft2(data),[],3).*opts.mask;
+data = ifft(ifft2(data),[],3);
 fprintf(' Shifting kspace center from [%i %i %i]\n',dx,dy,dz);
 
 %% initial estimate of psi
@@ -178,8 +178,6 @@ else
     end
 
 end
-
-psi(~opts.mask) = 0;
 
 %% faster calculations
 
