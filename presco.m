@@ -30,7 +30,7 @@ if nargin==0
     load invivo.mat;
     %load PHANTOM_NDB_PAPER.mat
     %load liver_gre_3d_2x3.mat; data = data(:,:,27,:);
-    %load liver_gre_3d_1x6.mat; data = data(:,:,26,:); 
+    %load liver_gre_3d_1x6.mat; %data = data(:,:,27,:); 
 elseif isa(te,'struct')
     % partial handling of ISMRM F/W toolbox structure
     if nargin>1; varargin = {data,Tesla,varargin{:}}; end
@@ -47,7 +47,7 @@ end
 
 % constraints
 opts.muB = 0.00; % regularization for B0
-opts.muR = 0.01; % regularization for R2*
+opts.muR = 0.05; % regularization for R2*
 opts.nonnegFF = 0; % nonnegative pdff (1=on 0=off)
 opts.nonnegR2 = 1; % nonnegative R2* (1=on 0=off)
 opts.smooth_phase = 1; % smooth phase (1=on 0=off)
@@ -129,6 +129,9 @@ if isempty(opts.noise)
     opts.noise = gather(sqrt(X/nnz(data))); % normalize for 0s
 end
 
+% signal mask (needs work)
+opts.mask = dot(data,data,4) > 2*opts.noise^2;
+
 % time evolution matrix
 te = real(cast(te,'like',data));
 [opts.A opts.psif] = fat_basis(te,Tesla,opts.ndb,opts.h2o);
@@ -147,19 +150,15 @@ end
 
 %% center kspace (otherwise smoothing is risky)
 
-mask = dot(data,data,4);
-
 data = fft(fft2(data),[],3);
 tmp = dot(data,data,4);
 [~,k] = max(tmp(:));
 [dx dy dz] = ind2sub([nx ny nz],k);
 data = circshift(data,1-[dx dy dz]);
-data = ifft(ifft2(data),[],3).*(mask>0);
+data = ifft(ifft2(data),[],3).*opts.mask;
 fprintf(' Shifting kspace center from [%i %i %i]\n',dx,dy,dz);
 
-opts.mask = mask > opts.noise^2;
-
-%% initial estimates
+%% initial estimate of psi
 
 if isempty(opts.psi)
 
@@ -257,7 +256,7 @@ for iter = 1:opts.maxit(2)
                 s = nlsfit(psi-opts.psif,te,data,opts);
                 bad = dot(r,r) > dot(s,s);
                 psi(bad) = psi(bad)-opts.psif;
-            elseif iter>2
+            elseif iter>opts.maxit(2)/2
                 % phase unwrapping
                 psi = unswap(psi,te,data,opts);
             end
