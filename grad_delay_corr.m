@@ -1,4 +1,4 @@
-function data = grad_delay_corr(data,xdim)
+function [data phi] = grad_delay_corr(data,dim)
 %
 % a simple gradient delay correction
 %
@@ -6,8 +6,8 @@ function data = grad_delay_corr(data,xdim)
 % along the echo dimension and compress it w.r.t. a phase roll
 % (gradient delay) along the x-direction.
 %
-% -data is a 2D or 3D complex multi-echo dataset (echos in last dim)
-% -xdim is the readout dimension (default 2)
+% -data: 2D or 3D complex multi-echo images (echos in last dim)
+% -dim: the readout dimension (default 2)
 
 % demo dataset
 if nargin==0
@@ -21,60 +21,61 @@ end
 
 % readout dimension
 if nargin<2
-    xdim = 2;
-elseif ~ismember(xdim,[1 2 3])
-    error('xdim is not supported');
+    dim = 2;
+elseif ~ismember(dim,[1 2 3])
+    error('dim is not supported');
 end
 
-% gradient delay correction (assume same in all slice locations)
-fopts = optimset('Display','off','GradObj','on');
-phi = fminunc(@(phi)myfun(phi,data,xdim),0,fopts);
-
-% get corrected data
-[~,~,data] = myfun(phi,data,xdim);
-
-%% cost function: nuclear norm
-function [nrm grd data] = myfun(phi,data,xdim)
-
-sz = size(data);
-
-% phase roll along readout direction
-roll = i * linspace(-1,1,sz(xdim));
-
-roll = cast(roll,'like',data);
-if xdim==1; roll = reshape(roll,[],1,1); end
-if xdim==2; roll = reshape(roll,1,[],1); end
-if xdim==3; roll = reshape(roll,1,1,[]); end
+% phase roll along readout (unit: 2pi phase cycles <=> kspace points)
+roll = i * linspace(-pi,pi,size(data,dim));
+if dim==1; roll = reshape(roll,[],1,1); end
+if dim==2; roll = reshape(roll,1,[],1); end
+if dim==3; roll = reshape(roll,1,1,[]); end
 
 % phase matrix
-sz(xdim) = 1;
-P = repmat(roll,sz);
-if ndims(data)==3; P(:,:,2:2:end) = -P(:,:,2:2:end); end
+s = size(data); s(dim) = 1;
+P = repmat(cast(roll,'like',data),s);
+if ndims(data)==3; P(:,:,  2:2:end) = -P(:,:,  2:2:end); end
 if ndims(data)==4; P(:,:,:,2:2:end) = -P(:,:,:,2:2:end); end
 
-% phase corrected data matrix
-A = reshape(exp(phi*P).*data,[],sz(4));
+% minimize cost function
+opts = optimset('Display','off','GradObj','on');
+[phi,~,~,~,~,H] = fminunc(@(phi)myfun(phi,data,P),0,opts);
 
+% 95% confidence interval
+ci95 = sqrt(diag(inv(abs(H)))) * 1.96;
+
+fprintf('Gradient delay = %f ± %f dwell times\n',phi,ci95);
+
+% get corrected data
+[~,~,data] = myfun(phi,data,P);
+
+%% cost function: nuclear norm of A
+function [nrm grd A] = myfun(phi,data,P)
+
+% phase correct data
+A = exp(phi*P) .* data;
+
+% matrix of echo variation in all pixels
+A = reshape(A,[],size(data,ndims(data)));
+
+% nuclear norm and derivative w.r.t. phi
 if nargout==1
-    
-    % nuclear norm (double for fminunc)
+
     W = svd(A'*A);
-    W = sqrt(diag(W));
-    nrm = gather(sum( W,'double'));
+    W = sqrt(W);
+    nrm = gather(sum(W,'double'));
     
 else
     
-    % derivative required
     [V W] = svd(A'*A);
     W = sqrt(diag(W));
     dA = A.*reshape(P,size(A));
     dW = real(diag(V'*(A'*dA)*V))./W;
     nrm = gather(sum( W,'double'));
     grd = gather(sum(dW,'double'));
-    
-    if nargout>2
-        % phase corrected data
-        data = reshape(A,size(data));
-    end
 
 end
+
+% return phase corrected data
+A = reshape(A,size(data));
