@@ -26,7 +26,7 @@ elseif ~ismember(dim,[1 2 3])
     error('dim is not supported');
 end
 
-% phase roll along readout (unit: 2pi phase cycles <=> kspace points)
+% phase roll along readout (unit: 2pi phase cycle <=> 1 kspace point <=> 1 dwell time)
 roll = i * linspace(-pi,pi,size(data,dim));
 if dim==1; roll = reshape(roll,[],1,1); end
 if dim==2; roll = reshape(roll,1,[],1); end
@@ -59,7 +59,7 @@ A = exp(phi*P) .* data;
 % matrix of echo variation in all pixels (doi.org/10.1016/j.mri.2006.03.006)
 A = reshape(A,[],size(data,ndims(data)));
 
-% nuclear norm and derivative w.r.t. phi
+% nuclear norm and derivative w.r.t. phi (doi.org/10.1016/j.mri.2022.08.017)
 if nargout==1
 
     W = svd(A'*A);
@@ -75,7 +75,7 @@ else
     nrm = gather(sum( W,'double'));
     grd = gather(sum(dW,'double'));
 
+    % return phase corrected data
+    A = reshape(A,size(data));  
+    
 end
-
-% return phase corrected data
-A = reshape(A,size(data));
