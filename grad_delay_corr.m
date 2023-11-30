@@ -1,17 +1,17 @@
 function [data phi] = grad_delay_corr(data,dim)
 %
-% a simple gradient delay correction
+% a simple bipolar gradient delay correction
 %
-% uses nuclear norm to quantify "amount" of signal variation
-% along the echo dimension and compress it w.r.t. a phase roll
-% (gradient delay) along the x-direction.
+% uses nuclear norm to quantify the "amount" of signal variation
+% along the echo dimension and compresses it w.r.t. a +/- phase
+% roll (gradient delay) along the readout direction
 %
 % -data: 2D or 3D complex multi-echo images (echos in last dim)
 % -dim: the readout dimension (default 2)
 
 % demo dataset
 if nargin==0
-    load ~/octave/IDEAL.mat
+    load liver_bipolar_12echo.mat
 end
 
 % arg check
@@ -56,7 +56,7 @@ function [nrm grd A] = myfun(phi,data,P)
 % phase correct data
 A = exp(phi*P) .* data;
 
-% matrix of echo variation in all pixels
+% matrix of echo variation in all pixels (doi.org/10.1016/j.mri.2006.03.006)
 A = reshape(A,[],size(data,ndims(data)));
 
 % nuclear norm and derivative w.r.t. phi
