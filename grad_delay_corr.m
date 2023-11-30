@@ -11,7 +11,7 @@ function [data phi] = grad_delay_corr(data,dim)
 
 % demo dataset
 if nargin==0
-    load liver_bipolar_12echo.mat
+    load liver_12echo_bipolar.mat
 end
 
 % arg check
