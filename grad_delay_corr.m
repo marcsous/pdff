@@ -51,31 +51,27 @@ fprintf('Gradient delay = %f ± %f dwell times\n',phi,ci95);
 [~,~,data] = myfun(phi,data,P);
 
 %% cost function: nuclear norm of A
-function [nrm grd A] = myfun(phi,data,P)
+function [nrm grd data] = myfun(phi,data,P)
 
 % phase correct data
-A = exp(phi*P) .* data;
+data = exp(phi*P) .* data;
 
 % matrix of echo variation in all pixels (doi.org/10.1016/j.mri.2006.03.006)
-A = reshape(A,[],size(data,ndims(data)));
+A = reshape(data,[],size(data,ndims(data)));
 
 % nuclear norm and derivative w.r.t. phi (doi.org/10.1016/j.mri.2022.08.017)
 if nargout==1
-
-    W = svd(A'*A);
-    W = sqrt(W);
-    nrm = gather(sum(W,'double'));
+    
+    W = svd(A);
     
 else
     
-    [V W] = svd(A'*A);
-    W = sqrt(diag(W));
+    [~,W,V] = svd(A,'econ');
+    W = diag(W);
     dA = A.*reshape(P,size(A));
     dW = real(diag(V'*(A'*dA)*V))./W;
-    nrm = gather(sum( W,'double'));
     grd = gather(sum(dW,'double'));
 
-    % return phase corrected data
-    A = reshape(A,size(data));  
-    
 end
+
+nrm = gather(sum(W,'double'));
