@@ -47,6 +47,10 @@ end
 %% cost function: nuclear norm of A
 function [nrm grd data] = myfun(phi,data,dim)
 
+% matrix of echo variation in all pixels
+s = size(data); s(dim) = 1;
+A = reshape(data,[],s(end));
+
 % phase roll along readout (unit: 2pi phase cycle <=> 1 kspace point <=> 1 dwell time)
 roll = i * linspace(-pi,pi,size(data,dim));
 if dim==1; roll = reshape(roll,[],1,1); end
@@ -54,18 +58,14 @@ if dim==2; roll = reshape(roll,1,[],1); end
 if dim==3; roll = reshape(roll,1,1,[]); end
 
 % phase matrix
-s = size(data); s(dim) = 1;
 P = repmat(cast(roll,'like',data),s);
+P = reshape(P,[],s(end));
 
-% alternate on odd/even echos
-if ndims(data)==3; P(:,:,  2:2:end) = -P(:,:,  2:2:end); end
-if ndims(data)==4; P(:,:,:,2:2:end) = -P(:,:,:,2:2:end); end
+% alternate odd/even echos
+P(:,2:2:end) = -P(:,2:2:end);
 
 % phase correct data
-data = exp(phi*P) .* data;
-
-% matrix of echo variation in all pixels
-A = reshape(data,[],s(end));
+A = exp(phi*P) .* A;
 
 % nuclear norm and derivative w.r.t. phi
 if nargout==1
@@ -77,9 +77,12 @@ else
     
     [U W V] = svd(A,'econ');
 	W = diag(W);
-    dA = A.*reshape(P,size(A));
+    dA = A.*P;
     dW = real(diag((U'*dA)*V));
 
+    % return phase corrected data
+    data = reshape(A,size(data));
+    
 end
 
 % plain doubles for fminunc
