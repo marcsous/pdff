@@ -26,20 +26,18 @@ end
 % readout dimension
 if nargin<2
     dim = 2;
-elseif ~ismember(dim,[1 2 3])
+elseif ~isscalar(dim) || ~ismember(dim,[1 2 3])
     error('dim is not supported');
 end
 
-% minimize cost function
-opts = optimset('Display','off','GradObj','on');
+% minimize cost function (DerivativeCheck requires doubles to pass)
+opts = optimset('Display','off','GradObj','on','DerivativeCheck','off');
 [phi,~,~,~,~,H] = fminunc(@(phi)myfun(phi,data,dim),0,opts);
 
 % 95% confidence interval
 ci95 = sqrt(diag(inv(abs(H)))) * 1.96;
 
-for k = 1:numel(phi)
-    fprintf('Gradient delay = %f ± %f dwell times\n',phi(k),ci95(k));
-end
+fprintf('Gradient delay = %f ± %f dwell times\n',phi,ci95);
 
 % get corrected data
 [~,~,data] = myfun(phi,data,dim);
@@ -47,22 +45,27 @@ end
 %% cost function: nuclear norm of A
 function [nrm grd data] = myfun(phi,data,dim)
 
+% key size parameters
+siz = size(data);
+nx = siz(dim);
+ne = siz(end);
+
 % matrix of echo variation in all pixels
-s = size(data); s(dim) = 1;
-A = reshape(data,[],s(end));
+A = reshape(data,[],ne);
 
 % phase roll along readout (unit: 2pi phase cycle <=> 1 kspace point <=> 1 dwell time)
-roll = i * linspace(-pi,pi,size(data,dim));
+roll = cast(i * linspace(-pi,pi,nx),'like',data);
 if dim==1; roll = reshape(roll,[],1,1); end
 if dim==2; roll = reshape(roll,1,[],1); end
 if dim==3; roll = reshape(roll,1,1,[]); end
 
 % phase matrix
-P = repmat(cast(roll,'like',data),s);
-P = reshape(P,[],s(end));
+siz(dim) = 1;
+P = repmat(roll,siz);
+P = reshape(P,[],ne);
 
 % alternate odd/even echos
-P(:,2:2:end) = -P(:,2:2:end);
+P(:,2:2:ne) = -P(:,2:2:ne);
 
 % phase correct data
 A = exp(phi*P) .* A;
