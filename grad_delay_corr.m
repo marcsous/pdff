@@ -19,7 +19,7 @@ if nargin==0
 end
 
 % arg check
-if ndims(data)<3 || ndims(data)>4 || isreal(data) || ~isfloat(data)
+if ndims(data)<2 || ndims(data)>4 || isreal(data) || ~isfloat(data)
     error('data size/type not supported');
 end
 
