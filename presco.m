@@ -2,12 +2,12 @@ function [params sse] = presco(te,data,Tesla,varargin)
 %[params sse] = presco(te,data,Tesla,varargin)
 %[params sse] = presco(imDataParams,varargin)
 %
-% Phase regularized estimation using smoothing and
+% Field regularized estimation using smoothing and
 % constrained optimization of the proton density
 % fat fraction (PDFF).
 %
-% Works best with phase unwrapping (e.g. unwrap2.m &
-% unwrap3.m from https://github.com/marcsous/unwrap).
+% Works best with phase unwrapping (e.g. unwrapn.m
+% from https://github.com/marcsous/unwrap).
 %
 % Inputs:
 %  te is echo time in seconds (vector)
@@ -27,12 +27,17 @@ function [params sse] = presco(te,data,Tesla,varargin)
 
 % demo code
 if nargin==0
-    load invivo.mat;
-    %load PHANTOM_NDB_PAPER.mat
-    %load liver_gre_3d_2x3.mat; data = data(:,:,27,:);
+    %load invivo.mat;
+    %load PHANTOM_NDB_PAPER.mat; data = data(:,:,1:6); te=te(1:6);
+    %load liver_gre_3d_2x3.mat; data = data(:,:,26,:);
     %load liver_gre_3d_1x6.mat; data = data(:,:,27,:); 
+    load liver_gre_3d_1x6_slice.mat
 elseif isa(te,'struct')
     % partial handling of ISMRM F/W toolbox structure
+% e.g.
+%load /home/mbydder/Desktop/old-disks/amu/mark/Documents/MATLAB/fatwater/fwtoolbox_v1/fwtoolbox_v1_data/kellman_data/PKdata1.mat
+%presco(data);
+
     if nargin>1; varargin = {data,Tesla,varargin{:}}; end
     data = te.images*100/max(abs(te.images(:))); % no weirdness
     if te.PrecessionIsClockwise<0; data = conj(data); end
@@ -46,25 +51,23 @@ end
 %% options
 
 % constraints
-opts.muB = 0.00; % regularization for B0
-opts.muR = 0.05; % regularization for R2*
+opts.muB = 0.0; % regularization term for B0
+opts.muR = 0.0; % regularization term for R2*
 opts.nonnegFF = 0; % nonnegative pdff (1=on 0=off)
 opts.nonnegR2 = 1; % nonnegative R2* (1=on 0=off)
-opts.smooth_phase = 1; % smooth phase (1=on 0=off)
-opts.smooth_field = 1; % smooth field (1=on 0=off)
+opts.smooth_phase = 1; % phase smoothing (1=on 0=off)
+opts.smooth_field = 1; % field smoothing (1=on 0=off)
 
 % constants
-opts.ndb = 2.5; % no. double bonds
-opts.h2o = 4.7; % water frequency ppm
-opts.filter = ones(3); % low pass filter
-opts.noise = []; % noise std (if available)
-opts.maxit = [10 10 3]; % iterations (inner outer linesearch)
+opts.ndb = 2.5; % no. double bonds (~2.5 in vivo, ~3.0 in phantom)
+opts.h2o = 4.7; % water frequency ppm (4.7 in vivo, 4.9 in phantom)
+opts.filter = ones(3,3,1); % low pass filter
+opts.maxit = [10 5 1]; % iterations (outer inner linesearch)
 
 % debugging options
 opts.unwrap = 1; % use phase unwrapping of fieldmap (0=off)
 opts.psi = []; % fixed initial psi estimate (for testing)
 opts.display = 1; % useful but slow (0 to turn off)
-opts.none = 0; % quick flag turn off all constraints
 
 % varargin handling (must be option/value pairs)
 for k = 1:2:numel(varargin)
@@ -80,13 +83,6 @@ for k = 1:2:numel(varargin)
         n = numel(varargin{k+1});
         opts.(varargin{k})(1:n) = varargin{k+1};
     end
-end
-if opts.none
-    opts.muB = 0;
-    opts.muR = 0;
-    opts.nonnegFF = 0;
-    opts.nonnegR2 = 0;
-    opts.smooth_phase = 0;
 end
 
 %% argument checks - be flexible: 1D, 2D or 3D data
@@ -116,21 +112,8 @@ end
 
 %% setup
 
-% estimate noise std dev (needs work)
-if isempty(opts.noise)
-    count = 0;
-    for j = -2:2
-        for k = -2:2
-            count = count+1;
-            X(:,count) = reshape(circshift(data,[j k]),[],1);
-        end
-    end
-    X = min(svd(X'*X)); % smallest sval represents noise only
-    opts.noise = gather(sqrt(X/nnz(data))); % normalize for 0s
-end
-
-% signal mask (needs work)
-opts.mask = dot(data,data,4) > 2*opts.noise^2;
+% signal quality mask
+opts.mask = rms(data,4);
 
 % time evolution matrix
 te = real(cast(te,'like',data));
@@ -142,12 +125,6 @@ disp([' TE (ms): ' sprintf('%.2f ',1000*te(:))])
 disp([' Tesla (T): ' sprintf('%.2f',Tesla)])
 disp(opts);
 
-% standardize mu across datasets
-if opts.noise
-    opts.muR = opts.muR * opts.noise;
-    opts.muB = opts.muB * opts.noise;
-end
-
 %% center kspace (otherwise smoothing is risky)
 
 data = fft(fft2(data),[],3);
@@ -155,7 +132,7 @@ tmp = dot(data,data,4);
 [~,k] = max(tmp(:));
 [dx dy dz] = ind2sub([nx ny nz],k);
 data = circshift(data,1-[dx dy dz]);
-data = ifft(ifft2(data),[],3);
+data = ifft(ifft2(data),[],3).*(opts.mask>0);
 fprintf(' Shifting kspace center from [%i %i %i]\n',dx,dy,dz);
 
 %% initial estimate of psi
@@ -203,7 +180,6 @@ te = real(cast(te,'like',data));
 opts.A = cast(opts.A,'like',data);
 opts.muR = cast(opts.muR,'like',te);
 opts.muB = cast(opts.muB,'like',te);
-opts.noise = cast(opts.noise,'like',te);
 opts.filter = cast(opts.filter,'like',te);
 
 % allow for spatially varying regularization
@@ -216,25 +192,23 @@ end
 
 % single pixel fitting doesn't need unwrapping
 if numel(te)==numel(data)
-    opts.maxit(2) = 1;
+    opts.maxit(1) = 1;
 end
 
 %% main algorithm
 
-% the first opts.maxit-1 iterations are really only to get
-% rid of fat-water swaps. certain constraints don't make
-% sense if there are still fat-water swaps present so we can
-% take liberties and apply constraints only when they make
-% sense. e.g. this may mean setting muB and smooth_phase to
-% 0 on the first iterations.
+% the first iterations really only get rid of fat-water swaps.
+% certain constraints don't make sense if there are still swaps
+% present so we take the liberty to apply constraints only when
+% they make sense. e.g. muB and smooth_phase = 0 on the 1st iterations.
 
 muB = opts.muB;
 smooth_phase = opts.smooth_phase;
         
-for iter = 1:opts.maxit(2)
+for iter = 1:opts.maxit(1)
 
     % fiddle with options, as discussed above
-    if iter==1 && opts.maxit(2)>1
+    if iter<3
         opts.muB = 0;
         opts.smooth_phase = 0;
     else
@@ -247,22 +221,20 @@ for iter = 1:opts.maxit(2)
     fprintf(' Iter %i\t%f\n',iter,norm(r(:)));
     
     % deal with pixel swapping
-    if iter<opts.maxit(2)
+    if iter==1 && isempty(opts.psi)
+        % estimate based on least squares
+        s = nlsfit(psi-opts.psif,te,data,opts);
+        bad = dot(r,r) > dot(s,s);
+        psi(bad) = psi(bad)-opts.psif;
+    elseif iter<opts.maxit(1)
         if opts.unwrap
-            if iter==1 && isempty(opts.psi)
-                % estimate based on least squares
-                s = nlsfit(psi-opts.psif,te,data,opts);
-                bad = dot(r,r) > dot(s,s);
-                psi(bad) = psi(bad)-opts.psif;
-            elseif iter>opts.maxit(2)/2
-                % phase unwrapping
-                psi = unswap(psi,te,data,opts);
-            end
+            % phase unwrapping
+            psi = unswap(psi,te,data,opts);
         end
         if opts.smooth_field
             % low pass filtering
             B0 = real(squeeze(psi));
-            B0 = medfiltn(B0,size(opts.filter),opts.mask);
+            B0 = medfiltn(B0,size(opts.filter),opts.mask>0);
             psi = reshape(B0,size(psi))+i*imag(psi);
         end
     end
@@ -275,7 +247,8 @@ psi = transform(psi,opts);
 params.B0 = gather(squeeze(real(psi)))/2/pi; % B0 (Hz)
 params.R2 = gather(squeeze(imag(psi))); % R2* (1/s)
 params.FF = gather(squeeze(100*x(2,:,:,:)./sum(x))); % FF (%)
-params.FF(~opts.mask) = 0; % remove NaNs from 0/0 pixels
+%params.FF = gather(squeeze(100*x(2,:,:,:)./x(1,:,:,:))); % RATIO
+params.FF(opts.mask==0) = 0; % remove NaNs from 0/0 pixels
 params.PH = gather(squeeze(phi)); % initial phase (rad)
 sse = gather(squeeze(real(dot(r,r)))); % sum of squares error
 
@@ -285,7 +258,7 @@ function [r psi phi x] = nlsfit(psi,te,data,opts)
 % regularizer (smooth B0 + zero R2)
 PSI = real(psi);
 
-for iter = 1:opts.maxit(1)
+for iter = 1:opts.maxit(2)
 
     % residual and Jacobian J = [JB JR]
     [r phi x JB JR] = pclsr(psi,te,data,opts);
@@ -305,7 +278,7 @@ for iter = 1:opts.maxit(1)
     GHG = gB.^2.*H1+2*gB.*gR.*H2+gR.^2.*H3;
 
     % stabilize step size: small and nonzero
-    damp = median(GHG(opts.mask)) / 1000;
+    damp = median(GHG(opts.mask>0)) / 1000;
     step = GG ./ (GHG + damp) / opts.maxit(3);
     dpsi = -step .* G;
 
@@ -402,7 +375,7 @@ x = real(bsxfun(@times,z,exp(-i*phi)));
 if opts.nonnegFF
     x = max(x,0);
     WAx = W.*(opts.A*x);
-    a = dot(WAx,b)./max(dot(WAx,WAx),eps(opts.noise));
+    a = dot(WAx,b)./max(dot(WAx,WAx),eps);
     x = bsxfun(@times,abs(a),x);
     phi = angle(a);
     if opts.smooth_phase
@@ -511,46 +484,31 @@ tpsi = complex(B0,R2);
 %% use phase unwrapping to remove 2pi boundaries
 function psi = unswap(psi,te,data,opts)
 
-% this unwraps in 3 passes: first for aliasing
-% and second for fat-water swaps. then again
-% to fix unwraps made on the wrong pass. it
-% would be better if we could do a single pass
-% and choose the best option.
-
-% swapping can occur at 2 frequences
-swap(1) = 1/min(diff(te)); % aliasing (Hz)
-swap(2) = -real(opts.psif)/2/pi; % fat-water (Hz)
-swap(3) = abs(diff(swap(1:2))); % both (Hz)
-
-% frequencies too close, skip the difference
-if min(swap(3)./swap(1:2)) < 0.2; swap(3) = []; end
+% swapping can occur at 2 frequences (Hz)
+swap(1) = 1/min(diff(te)); % aliasing freq
+swap(2) = -real(opts.psif)/2/pi; % fat-water
 
 % only unwrap B0
 B0 = real(squeeze(psi));
 
-% unwrap is CPU only (mex)
+% CPU only (mex)
 B0 = gather(B0);
 swap = gather(swap);
 mask = gather(opts.mask);
 
 % unwrap all swaps
 for k = 1:numel(swap)
-
     B0 = B0/swap(k);
-    if ndims(B0)==2
-        B0 = unwrap2(B0,mask);
-    else
-        B0 = unwrap3(B0,mask);
-    end
+    B0 = unwrapn(B0,mask);
+    %B0 = unwrap_phase(B0,mask);
     B0 = B0*swap(k);
-    
 end
 
 % remove gross aliasing (cosmetic)
 alias_freq = 2*pi/min(diff(te)); % aliasing freq (rad/s)
-center_freq = median(B0(opts.mask)); % center B0 (rad/s)
+center_freq = median(B0(opts.mask>0)); % center B0 (rad/s)
 nwraps = round(center_freq / alias_freq); % no. of wraps
-B0(opts.mask) = B0(opts.mask)-gather(nwraps*alias_freq);
+B0(opts.mask>0) = B0(opts.mask>0)-gather(nwraps*alias_freq);
 
 % back to complex
 psi = reshape(B0,size(psi))+i*imag(psi);
